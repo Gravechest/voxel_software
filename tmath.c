@@ -3,9 +3,8 @@
 #include "tmath.h"
 
 float tFloorf(float p){
-	int n = (int)p;
-    float d = (float)n;
-	return d == p || p >= 0.0f ? d : d - 1.0f;
+    int pi = (int)p;
+    return (p < pi) ? (pi - 1) : pi;
 }
 
 float tCeilingf(float p){
@@ -37,6 +36,16 @@ float tMix(float v1,float v2,float inpol){
 
 float tFract(float x){
 	return x - tFloorf(x);
+}
+
+float tFractUnsigned(float x){
+	return x - (int)x;
+}
+
+void tSwapf(float* f_1,float* f_2){
+	float temp = *f_1;
+	*f_1 = *f_2;
+	*f_2 = temp;
 }
 
 int tAbs(int x){

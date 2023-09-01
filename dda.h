@@ -6,45 +6,52 @@
 typedef struct{
 	int x;
 	int y;
-}IVEC2;
+}Ivec2;
 
-typedef struct{
-	union{
-		struct{
-			int x;
-			int y;
-			int z;	
-		};
-		int a[3];
+typedef union{
+	struct{
+		int x;
+		int y;
+		int z;	
 	};
-}IVEC3;
+	int a[3];
+}ivec3;
+
+typedef union{
+	struct{
+		unsigned int x;
+		unsigned int y;
+		unsigned int z;	
+	};
+	unsigned int a[3];
+}uvec3;
 
 typedef struct{
-	VEC3 pos;
-	VEC3 dir;
-	VEC3 delta;
-	VEC3 side;
+	vec3 pos;
+	vec3 dir;
+	vec3 delta;
+	vec3 side;
 
-	IVEC3 step;
-	IVEC3 square_pos;
+	ivec3 step;
+	ivec3 square_pos;
 
 	int square_side;
-}RAY3;
+}ray3_t;
 
 typedef struct{
-	VEC2 pos;
-	VEC2 dir;
-	VEC2 delta;
-	VEC2 side;
+	vec2 pos;
+	vec2 dir;
+	vec2 delta;
+	vec2 side;
 
-	IVEC2 step;
-	IVEC2 square_pos;
+	Ivec2 step;
+	Ivec2 square_pos;
 
 	int square_side;
-}RAY2;
+}ray2_t;
 
-RAY3 ray3Create(VEC3 pos,VEC3 dir);
-RAY2 ray2Create(VEC2 pos,VEC2 dir);
-void ray2Itterate(RAY2* ray);
-void ray3Itterate(RAY3* ray);
-VEC2 ray3UV(RAY3 ray);
+ray3_t ray3Create(vec3 pos,vec3 dir);
+ray2_t ray2Create(vec2 pos,vec2 dir);
+void ray2Itterate(ray2_t* ray);
+void ray3Itterate(ray3_t* ray);
+vec2 ray3UV(ray3_t ray);

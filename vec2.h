@@ -1,43 +1,42 @@
 #pragma once
 
-#define VEC2_ZERO (VEC2){0.0f,0.0f}
-#define VEC2_SQUARE(V) (VEC2){V,V/1.77777777778f}
+#define vec2_ZERO (vec2){0.0f,0.0f}
+#define vec2_SQUARE(V) (vec2){V,V/1.77777777778f}
 
-typedef struct{
-	union{
-		struct{
-			float x;
-			float y;
-		};
-		float a[2];
+typedef union{
+	struct{
+		float x;
+		float y;
 	};
-}VEC2;
+	float a[2];
+}vec2;
 
 enum{
-	VEC2_X,
-	VEC2_Y
+	vec2_X,
+	vec2_Y
 };
 
-void VEC2add(VEC2* v,float a);
-void VEC2div(VEC2* v,float d);
-void VEC2mul(VEC2* v,float m);
-void VEC2subVEC2(VEC2* v1,VEC2 v2);
-void VEC2addVEC2(VEC2* v1,VEC2 v2);
-void VEC2mulVEC2(VEC2* v1,VEC2 v2);
-void VEC2normalize(VEC2* p);
-void VEC2rot(VEC2* v,float r);
-VEC2 VEC2divFR(VEC2 p,float p2);
-VEC2 VEC2absR(VEC2 p);
-VEC2 VEC2subVEC2R(VEC2 v1,VEC2 v2);
-VEC2 VEC2addVEC2R(VEC2 v1,VEC2 v2);
-VEC2 VEC2mulVEC2R(VEC2 v1,VEC2 v2);
-VEC2 VEC2addR(VEC2 p,float a);
-VEC2 VEC2subR(VEC2 p,float s);
-VEC2 VEC2mulR(VEC2 p,float f);	
-VEC2 VEC2divR(VEC2 p,float d);
-VEC2 VEC2normalizeR(VEC2 p);
-VEC2 VEC2mixR(VEC2 v1,VEC2 v2,float mix);
-float VEC2dotR(VEC2 v1,VEC2 v2);
-float VEC2length(VEC2 p);
-float VEC2distance(VEC2 p,VEC2 p2);
-VEC2 VEC2reflect(VEC2 i,VEC2 n);
+void vec2add(vec2* v,float a);
+void vec2div(vec2* v,float d);
+void vec2mul(vec2* v,float m);
+void vec2subvec2(vec2* v1,vec2 v2);
+void vec2addvec2(vec2* v1,vec2 v2);
+void vec2mulvec2(vec2* v1,vec2 v2);
+void vec2normalize(vec2* p);
+void vec2rot(vec2* v,float r);
+vec2 vec2divFR(vec2 p,float p2);
+vec2 vec2absR(vec2 p);
+vec2 vec2subvec2R(vec2 v1,vec2 v2);
+vec2 vec2addvec2R(vec2 v1,vec2 v2);
+vec2 vec2mulvec2R(vec2 v1,vec2 v2);
+vec2 vec2addR(vec2 p,float a);
+vec2 vec2subR(vec2 p,float s);
+vec2 vec2mulR(vec2 p,float f);	
+vec2 vec2divR(vec2 p,float d);
+vec2 vec2normalizeR(vec2 p);
+vec2 vec2mixR(vec2 v1,vec2 v2,float mix);
+vec2 vec2rotR(vec2 v,float r);
+float vec2dotR(vec2 v1,vec2 v2);
+float vec2length(vec2 p);
+float vec2distance(vec2 p,vec2 p2);
+vec2 vec2reflect(vec2 i,vec2 n);

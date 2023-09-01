@@ -1,87 +1,37 @@
 #include <Windows.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdbool.h>
 
 #include "tmath.h"
 #include "vec2.h"
 #include "vec3.h"
 #include "dda.h"
-
-#define MV_MODE 0
-
-#define WALK_SPEED 0.012f
-#define WALK_SPEED_DIA (WALK_SPEED * 0.5625f)
-
-#define GROUND_FRICTION 0.78f
-
-#define RD_BLOCK 4
-
-#define RES_SCALE 2
-#define FOV (VEC2){600.0f / RES_SCALE,600.0f / RES_SCALE}
-#define WND_RESOLUTION (VEC2){1080 / RES_SCALE,1920 / RES_SCALE}
-#define WND_SIZE (VEC2){1920,1080}
-
-#define VK_W 0x57
-#define VK_S 0x53
-#define VK_A 0x41
-#define VK_D 0x44
-
-#define MAP_SIZE 32
-
-#define LM_RES 16
-
-#define MALLOC(AMMOUNT) HeapAlloc(GetProcessHeap(),0,AMMOUNT)
-#define MALLOC_ZERO(AMMOUNT) HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,AMMOUNT)
-#define MFREE(POINTER) HeapFree(GetProcessHeap(),0,POINTER)
-
-#define true 1;
-#define false 0;
-
-typedef char bool;
-
-typedef struct{
-	float x;
-	float y;
-	float z;
-	float w;
-}VEC4;
-
-typedef struct{
-	unsigned char r;
-	unsigned char g;
-	unsigned char b;
-}PIXEL;
-
-typedef struct{
-	VEC3 pos;
-	VEC2 dir;
-	VEC4 tri;
-	VEC3 vel;
-}CAMERA;
-
-typedef struct{
-	PIXEL* draw;
-	PIXEL* render;
-}VRAM;
-
-IVEC3 block_deleted = {-1,-1,-1};
+#include "source.h"
+#include "tree.h"
+#include "memory.h"
+#include "physics.h"
+#include "lighting.h"
+#include "draw.h"
 
 int proc(HWND hwnd,UINT msg,WPARAM wParam,LPARAM lParam);
 
-WNDCLASSA wndclass = {.lpfnWndProc = proc,.lpszClassName = "class",.lpszMenuName = "class"};
-BITMAPINFO bmi = {sizeof(BITMAPINFOHEADER),0,0,1,24,BI_RGB};
+WNDCLASSA wndclass = {.lpfnWndProc = (WNDPROC)proc,.lpszClassName = "class",.lpszMenuName = "class"};
+BITMAPINFO bmi = {sizeof(BITMAPINFOHEADER),0,0,1,32,BI_RGB};
 HWND window;
 HDC context;
-volatile VRAM vram;
-CAMERA camera = {.pos.z = 5.0f,.pos.x = 3.0f,.pos.y = 3.0f};
+vram_t vram;
+camera_t camera = {.pos.z = 30.0f,.pos.x = 3.0f,.pos.y = 3.0f};
 
-int blocktype_select;
-int color_select;
-int edit_mode;
+int edit_depth = 5;
 
 volatile bool is_rendering;
 
-VEC3 color_pallet[6] = {
+int test_bool;
+
+int global_tick;
+
+vec3 color_pallet[6] = {
 	{0.9f,0.9f,0.9f},
 	{0.9f,0.3f,0.3f},
 	{0.3f,0.9f,0.3f},
@@ -90,398 +40,86 @@ VEC3 color_pallet[6] = {
 	{0.9f,0.3f,0.9f}
 };
 
-typedef struct{
-	int lm_updated;
-	float lm_update_priority;
-	VEC3 base_color;
-	VEC3 color[4][4];
-}BLOCK_SIDE;
-
-typedef struct{
-	int type;
-	BLOCK_SIDE side[6];
-}BLOCK;
-
-typedef struct BLOCK_NODE{
-	BLOCK* block;
-	union{
-		struct BLOCK_NODE* block_node[2][2][2];
-		struct BLOCK_NODE* block_node_s[8];
-	};
-}BLOCK_NODE;
-
-BLOCK_NODE block_node;
-	
 volatile char frame_ready;
+
+pixel_t* texture[16];
+
+material_t material_array[] = {
+	{0},
+	{0},
+	{0},
+	{.flags = MAT_REFLECT},
+	{.flags = MAT_REFLECT},
+	{.flags = MAT_LUMINANT,.luminance = {2.0f,2.0f,2.0f}},
+	{.flags = MAT_LUMINANT,.luminance = {2.0f,0.5f,0.5f}},
+	{.flags = MAT_LUMINANT,.luminance = {0.5f,2.0f,0.5f}},
+	{.flags = MAT_LUMINANT,.luminance = {0.5f,0.5f,2.0f}}
+};
+
+pixel_t* loadBMP(char* name){
+	HANDLE h = CreateFileA(name,GENERIC_READ,0,0,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,0);
+	int fsize = GetFileSize(h,0);
+	int offset;
+	SetFilePointer(h,0x0a,0,0);
+	ReadFile(h,&offset,4,0,0);
+	SetFilePointer(h,offset,0,0);
+	int size = sqrtf((fsize-offset) / 3);
+	pixel_t* text = MALLOC(sizeof(pixel_t) * size * size);
+	text[0].size = size;
+	char* temp = MALLOC(fsize + 5);
+	ReadFile(h,temp,fsize-offset,0,0);
+	for(int i = 0;i < text[0].size * text[0].size;i++){
+		text[i + 1].r = temp[i * 3 + 0];
+		text[i + 1].g = temp[i * 3 + 1];
+		text[i + 1].b = temp[i * 3 + 2];
+	}	
+	MFREE(temp);
+	
+	CloseHandle(h);
+	return text;
+}
 
 void render(){
 	for(;;){
 		StretchDIBits(context,0,0,WND_SIZE.x,WND_SIZE.y,0,0,WND_RESOLUTION.y,WND_RESOLUTION.x,vram.render,&bmi,0,SRCCOPY);
+		while(!frame_ready)
+			Sleep(1);
 		frame_ready = FALSE;
 	}
 }
 
-VEC2 sampleCube(VEC3 v,int* faceIndex){
-	VEC3 vAbs = VEC3absR(v);
+vec2 sampleCube(vec3 v,int* faceIndex){
+	vec3 vAbs = vec3absR(v);
 	float ma;
-	VEC2 uv;
+	vec2 uv;
 	if(vAbs.z >= vAbs.x && vAbs.z >= vAbs.y){
 		*faceIndex = (v.z < 0.0f) + 4;
 		ma = 0.5f / vAbs.z;
-		uv = (VEC2){v.z < 0.0f ? -v.x : v.x, -v.y};
+		uv = (vec2){v.z < 0.0f ? -v.x : v.x, -v.y};
 	}
 	else if(vAbs.y >= vAbs.x){
 		*faceIndex = (v.y < 0.0f) + 2;
 		ma = 0.5f / vAbs.y;
-		uv = (VEC2){v.x, v.y < 0.0f ? -v.z : v.z};
+		uv = (vec2){v.x, v.y < 0.0f ? -v.z : v.z};
 	}
 	else{
 		*faceIndex = v.x < 0.0f;
 		ma = 0.5f / vAbs.x;
-		uv = (VEC2){v.x < 0.0f ? v.z : -v.z, -v.y};
+		uv = (vec2){v.x < 0.0f ? v.z : -v.z, -v.y};
 	}
-	return (VEC2){uv.x * ma + 0.5f,uv.y * ma + 0.5f};
+	return (vec2){uv.x * ma + 0.5f,uv.y * ma + 0.5f};
 }
 
-VEC3 getLookAngle(VEC2 angle){
-	VEC3 ang;
+vec3 getLookAngle(vec2 angle){
+	vec3 ang;
 	ang.x = cosf(angle.x) * cosf(angle.y);
 	ang.y = sinf(angle.x) * cosf(angle.y);
 	ang.z = sinf(angle.y);
 	return ang;
 }
-/*
-void genLightSurface(float* lm_update_priority,VEC3* color,VEC3 base_color,VEC3 pos,VEC2 ang){
-	VEC3 c_color = VEC3_ZERO;
-	VEC3 normal = getLookAngle(ang);
-	float weight = 0.0f;
-	ang.x -= 1.0f - 1.0f / LM_RES;
-	ang.y -= 1.0f - 1.0f / LM_RES;
-	for(int x = 0;x < LM_RES;x++){
-		for(int y = 0;y < LM_RES;y++){
-			RAY3 ray = ray3Create(pos,getLookAngle(ang));
-			ray3Itterate(&ray);
-			for(;;){
-				bool bound_x = ray.square_pos.x < 0 || ray.square_pos.x >= MAP_SIZE;
-				bool bound_y = ray.square_pos.y < 0 || ray.square_pos.y >= MAP_SIZE;
-				bool bound_z = ray.square_pos.z < 0 || ray.square_pos.z >= MAP_SIZE;
-				if(bound_x || bound_y || bound_z){
-					int side;
-					VEC2 uv = sampleCube(ray.dir,&side);
-					if(side == 1 && uv.x > 0.7f && uv.x < 0.9f && uv.y > 0.4f && uv.y < 0.6f){
-						VEC3addVEC3(&c_color,VEC3divR((VEC3){9.0f,15.0f,18.0f},LM_RES * LM_RES));
-						break;
-					}
-					VEC3addVEC3(&c_color,VEC3divR((VEC3){0.6f,0.5f,0.3f},LM_RES * LM_RES));
-					break;
-				}
-				BLOCK* block = map[ray.square_pos.z][ray.square_pos.y][ray.square_pos.x];
-				if(!block){
-					ray3Itterate(&ray);
-					continue;
-				}
-				int side = ray.square_side * 2 + (ray.dir.a[ray.square_side] < 0.0f);
-				float diffuse = VEC3dotR(ray.dir,normal);
-				weight += diffuse;
-				if(block->type){
-					VEC3 m_color = block->side[side].base_color;
-					VEC3mul(&m_color,3.0f);
-					VEC3addVEC3(&c_color,VEC3mulR(VEC3divR(m_color,LM_RES * LM_RES),diffuse));
-					break;
-				}
-				VEC2 uv = ray3UV(ray);
-				VEC3 m_color = VEC3mulVEC3R(block->side[side].color[(int)(uv.x * 2.0f) + 1][(int)(uv.y * 2.0f) + 1],block->side[side].base_color);
-				VEC3addVEC3(&c_color,VEC3mulR(VEC3divR(m_color,LM_RES * LM_RES),diffuse));
-				ray3Itterate(&ray);
-				break;
-			}
-			ang.x += 2.0f / LM_RES;
-		}
-		ang.x -= 2.0f;
-		ang.y += 2.0f / LM_RES;
-	}
-	*lm_update_priority += tMaxf(tAbsf(tAbsf(c_color.b - color->b)),tMaxf(tAbsf(c_color.r - color->r),tAbsf(c_color.g - color->g)));
-	VEC3div(color,weight);
-	*color = c_color;
-}*/
-/*
-void filterSurface(IVEC3 crd,int side,int x,int y,int dx,int dy,int dz){
-	if(crd.a[side >> 1] < 0)
-		return;
-	VEC3 (*lightmap)[4][4] = &map[crd.z][crd.y][crd.x]->side[side].color;
-	crd.a[x]--;
-	if(crd.a[x] > 0){
-		if(map[crd.z][crd.y][crd.x] && !map[crd.z][crd.y][crd.x]->type && !map[crd.z + dz][crd.y + dy][crd.x + dx]){
-			(*lightmap)[0][0] = VEC3mulR(map[crd.z][crd.y][crd.x]->side[side].color[2][1],0.5f);
-			(*lightmap)[0][1] = map[crd.z][crd.y][crd.x]->side[side].color[2][1];
-			(*lightmap)[0][2] = map[crd.z][crd.y][crd.x]->side[side].color[2][2];
-			(*lightmap)[0][3] = VEC3mulR(map[crd.z][crd.y][crd.x]->side[side].color[2][2],0.5f);
-		}
-		else{
-			(*lightmap)[0][0] = VEC3mulR((*lightmap)[1][1],0.5f);
-			(*lightmap)[0][1] = (*lightmap)[1][1];
-			(*lightmap)[0][2] = (*lightmap)[1][2];
-			(*lightmap)[0][3] = VEC3mulR((*lightmap)[1][1],0.5f);
-		}
-	}
-	crd.a[x] += 2;
-	if(crd.a[x] != MAP_SIZE){
-		if(map[crd.z][crd.y][crd.x] && !map[crd.z][crd.y][crd.x]->type && !map[crd.z + dz][crd.y + dy][crd.x + dx]){
-			(*lightmap)[3][0] = VEC3mulR(map[crd.z][crd.y][crd.x]->side[side].color[1][1],0.5f);
-			(*lightmap)[3][1] = map[crd.z][crd.y][crd.x]->side[side].color[1][1];
-			(*lightmap)[3][2] = map[crd.z][crd.y][crd.x]->side[side].color[1][2];
-			(*lightmap)[3][3] = VEC3mulR(map[crd.z][crd.y][crd.x]->side[side].color[1][2],0.5f);
-		}
-		else{
-			(*lightmap)[3][0] = VEC3mulR((*lightmap)[2][1],0.5f);
-			(*lightmap)[3][1] = (*lightmap)[2][1];
-			(*lightmap)[3][2] = (*lightmap)[2][2];
-			(*lightmap)[3][3] = VEC3mulR((*lightmap)[2][2],0.5f);
-		}
-	}
-	crd.a[x]--;
-	crd.a[y]++;
-	if(crd.a[y] != MAP_SIZE){
-		if(map[crd.z][crd.y][crd.x] && !map[crd.z][crd.y][crd.x]->type && !map[crd.z + dz][crd.y + dy][crd.x + dx]){
-			VEC3addVEC3(&(*lightmap)[0][3],VEC3mulR(map[crd.z][crd.y][crd.x]->side[side].color[1][1],0.5f));
-			(*lightmap)[1][3] = map[crd.z][crd.y][crd.x]->side[side].color[1][1];
-			(*lightmap)[2][3] = map[crd.z][crd.y][crd.x]->side[side].color[2][1];
-			VEC3addVEC3(&(*lightmap)[3][3],VEC3mulR(map[crd.z][crd.y][crd.x]->side[side].color[2][1],0.5f));
-		}
-		else{
-			VEC3addVEC3(&(*lightmap)[0][3],VEC3mulR((*lightmap)[1][2],0.5f));
-			(*lightmap)[1][3] = (*lightmap)[1][2];
-			(*lightmap)[2][3] = (*lightmap)[2][2];
-			VEC3addVEC3(&(*lightmap)[3][3],VEC3mulR((*lightmap)[2][2],0.5f));
-		}
-	}
-	crd.a[y] -= 2;
-	if(crd.a[y] > 0){
-		if(map[crd.z][crd.y][crd.x] && !map[crd.z][crd.y][crd.x]->type && !map[crd.z + dz][crd.y + dy][crd.x + dx]){
-			VEC3addVEC3(&(*lightmap)[0][0],VEC3mulR(map[crd.z][crd.y][crd.x]->side[side].color[1][2],0.5f));
-			(*lightmap)[1][0] = map[crd.z][crd.y][crd.x]->side[side].color[1][2];
-			(*lightmap)[2][0] = map[crd.z][crd.y][crd.x]->side[side].color[2][2];
-			VEC3addVEC3(&(*lightmap)[3][0],VEC3mulR(map[crd.z][crd.y][crd.x]->side[side].color[2][2],0.5f));
-			return;
-		}
-		VEC3addVEC3(&(*lightmap)[0][0],VEC3mulR((*lightmap)[1][1],0.5f));
-		(*lightmap)[1][0] = (*lightmap)[1][1];
-		(*lightmap)[2][0] = (*lightmap)[2][1];
-		VEC3addVEC3(&(*lightmap)[3][0],VEC3mulR((*lightmap)[2][1],0.5f));
-	}
-}*/
-/*
-void lightmap(){
-	for(;;){
-		float max_priority = 0.0f;
-		for(int x = 0;x < MAP_SIZE;x++){
-			for(int y = 0;y < MAP_SIZE;y++){
-				for(int z = 0;z < MAP_SIZE;z++){
-					if(!map[z][y][x] || map[z][y][x]->type)
-						continue;
-					for(int i = 0;i < 6;i++)
-						max_priority = tMaxf(max_priority,map[z][y][x]->side[i].lm_update_priority);
-				}
-			}
-		}
-		max_priority *= 0.5f;
-		int n = 0;
-		for(int x = 0;x < MAP_SIZE;x++){
-			for(int y = 0;y < MAP_SIZE;y++){
-				for(int z = 0;z < MAP_SIZE;z++){
-					if(!map[z][y][x] || map[z][y][x]->type)
-						continue;
-					for(int i = 0;i < 6;i++){
-						float priority = map[z][y][x]->side[i].lm_update_priority;
-						if(!priority || priority < max_priority)
-							continue;
-						if(map[z][y][x]->side[i].lm_updated--)
-							continue;
-						map[z][y][x]->side[i].lm_updated = 4;
-						if(n++ > 1024)
-							goto end;
-						map[z][y][x]->side[i].lm_update_priority = 0.0f;
-						switch(i >> 1){
-						case VEC3_X:
-							if(i & 1 && x && !map[z][y][x - 1]){
-								genLightSurface(&map[z][y][x]->side[i].lm_update_priority,&map[z][y][x]->side[0].color[1][1],map[z][y][x]->side[0].base_color,VEC3addVEC3R((VEC3){x,y,z},(VEC3){0.01f,0.25f,0.25f}),(VEC2){M_PI,0.0f});
-								genLightSurface(&map[z][y][x]->side[i].lm_update_priority,&map[z][y][x]->side[0].color[1][2],map[z][y][x]->side[0].base_color,VEC3addVEC3R((VEC3){x,y,z},(VEC3){0.01f,0.25f,0.75f}),(VEC2){M_PI,0.0f});
-								genLightSurface(&map[z][y][x]->side[i].lm_update_priority,&map[z][y][x]->side[0].color[2][1],map[z][y][x]->side[0].base_color,VEC3addVEC3R((VEC3){x,y,z},(VEC3){0.01f,0.75f,0.25f}),(VEC2){M_PI,0.0f});
-								genLightSurface(&map[z][y][x]->side[i].lm_update_priority,&map[z][y][x]->side[0].color[2][2],map[z][y][x]->side[0].base_color,VEC3addVEC3R((VEC3){x,y,z},(VEC3){0.01f,0.75f,0.75f}),(VEC2){M_PI,0.0f});
-							}
-							if(!(i & 1) && !map[z][y][x + 1]){
-								genLightSurface(&map[z][y][x]->side[i].lm_update_priority,&map[z][y][x]->side[1].color[1][1],map[z][y][x]->side[1].base_color,VEC3addVEC3R((VEC3){x,y,z},(VEC3){0.99f,0.25f,0.25f}),(VEC2){0.0f,0.0f});
-								genLightSurface(&map[z][y][x]->side[i].lm_update_priority,&map[z][y][x]->side[1].color[1][2],map[z][y][x]->side[1].base_color,VEC3addVEC3R((VEC3){x,y,z},(VEC3){0.99f,0.25f,0.75f}),(VEC2){0.0f,0.0f});
-								genLightSurface(&map[z][y][x]->side[i].lm_update_priority,&map[z][y][x]->side[1].color[2][1],map[z][y][x]->side[1].base_color,VEC3addVEC3R((VEC3){x,y,z},(VEC3){0.99f,0.75f,0.25f}),(VEC2){0.0f,0.0f});
-								genLightSurface(&map[z][y][x]->side[i].lm_update_priority,&map[z][y][x]->side[1].color[2][2],map[z][y][x]->side[1].base_color,VEC3addVEC3R((VEC3){x,y,z},(VEC3){0.99f,0.75f,0.75f}),(VEC2){0.0f,0.0f});
-							}
-							break;
-						case VEC3_Y:
-							if(i & 1 && y && !map[z][y - 1][x]){
-								genLightSurface(&map[z][y][x]->side[i].lm_update_priority,&map[z][y][x]->side[2].color[1][1],map[z][y][x]->side[2].base_color,VEC3addVEC3R((VEC3){x,y,z},(VEC3){0.25f,0.01f,0.25f}),(VEC2){-M_PI*0.5f,0.0f});
-								genLightSurface(&map[z][y][x]->side[i].lm_update_priority,&map[z][y][x]->side[2].color[1][2],map[z][y][x]->side[2].base_color,VEC3addVEC3R((VEC3){x,y,z},(VEC3){0.25f,0.01f,0.75f}),(VEC2){-M_PI*0.5f,0.0f});
-								genLightSurface(&map[z][y][x]->side[i].lm_update_priority,&map[z][y][x]->side[2].color[2][1],map[z][y][x]->side[2].base_color,VEC3addVEC3R((VEC3){x,y,z},(VEC3){0.75f,0.01f,0.25f}),(VEC2){-M_PI*0.5f,0.0f});
-								genLightSurface(&map[z][y][x]->side[i].lm_update_priority,&map[z][y][x]->side[2].color[2][2],map[z][y][x]->side[2].base_color,VEC3addVEC3R((VEC3){x,y,z},(VEC3){0.75f,0.01f,0.75f}),(VEC2){-M_PI*0.5f,0.0f});
-							}
-							if(!(i & 1) && !map[z][y + 1][x]){
-								genLightSurface(&map[z][y][x]->side[i].lm_update_priority,&map[z][y][x]->side[3].color[1][1],map[z][y][x]->side[3].base_color,VEC3addVEC3R((VEC3){x,y,z},(VEC3){0.25f,0.99f,0.25f}),(VEC2){M_PI*0.5f,0.0f});
-								genLightSurface(&map[z][y][x]->side[i].lm_update_priority,&map[z][y][x]->side[3].color[1][2],map[z][y][x]->side[3].base_color,VEC3addVEC3R((VEC3){x,y,z},(VEC3){0.25f,0.99f,0.75f}),(VEC2){M_PI*0.5f,0.0f});
-								genLightSurface(&map[z][y][x]->side[i].lm_update_priority,&map[z][y][x]->side[3].color[2][1],map[z][y][x]->side[3].base_color,VEC3addVEC3R((VEC3){x,y,z},(VEC3){0.75f,0.99f,0.25f}),(VEC2){M_PI*0.5f,0.0f});
-								genLightSurface(&map[z][y][x]->side[i].lm_update_priority,&map[z][y][x]->side[3].color[2][2],map[z][y][x]->side[3].base_color,VEC3addVEC3R((VEC3){x,y,z},(VEC3){0.75f,0.99f,0.75f}),(VEC2){M_PI*0.5f,0.0f});
-							}
-							break;
-						case VEC3_Z:
-							if(i & 1 && z && !map[z - 1][y][x]){
-								genLightSurface(&map[z][y][x]->side[i].lm_update_priority,&map[z][y][x]->side[4].color[1][1],map[z][y][x]->side[4].base_color,VEC3addVEC3R((VEC3){x,y,z},(VEC3){0.25f,0.25f,0.01f}),(VEC2){0.0f,-M_PI*0.5f});
-								genLightSurface(&map[z][y][x]->side[i].lm_update_priority,&map[z][y][x]->side[4].color[1][2],map[z][y][x]->side[4].base_color,VEC3addVEC3R((VEC3){x,y,z},(VEC3){0.25f,0.75f,0.01f}),(VEC2){0.0f,-M_PI*0.5f});
-								genLightSurface(&map[z][y][x]->side[i].lm_update_priority,&map[z][y][x]->side[4].color[2][1],map[z][y][x]->side[4].base_color,VEC3addVEC3R((VEC3){x,y,z},(VEC3){0.75f,0.25f,0.01f}),(VEC2){0.0f,-M_PI*0.5f});
-								genLightSurface(&map[z][y][x]->side[i].lm_update_priority,&map[z][y][x]->side[4].color[2][2],map[z][y][x]->side[4].base_color,VEC3addVEC3R((VEC3){x,y,z},(VEC3){0.75f,0.75f,0.01f}),(VEC2){0.0f,-M_PI*0.5f});
-							}
-							if(!(i & 1) && !map[z + 1][y][x]){
-								genLightSurface(&map[z][y][x]->side[i].lm_update_priority,&map[z][y][x]->side[5].color[1][1],map[z][y][x]->side[5].base_color,VEC3addVEC3R((VEC3){x,y,z},(VEC3){0.25f,0.25f,0.99f}),(VEC2){0.0f,M_PI*0.5f});
-								genLightSurface(&map[z][y][x]->side[i].lm_update_priority,&map[z][y][x]->side[5].color[1][2],map[z][y][x]->side[5].base_color,VEC3addVEC3R((VEC3){x,y,z},(VEC3){0.25f,0.75f,0.99f}),(VEC2){0.0f,M_PI*0.5f});
-								genLightSurface(&map[z][y][x]->side[i].lm_update_priority,&map[z][y][x]->side[5].color[2][1],map[z][y][x]->side[5].base_color,VEC3addVEC3R((VEC3){x,y,z},(VEC3){0.75f,0.25f,0.99f}),(VEC2){0.0f,M_PI*0.5f});
-								genLightSurface(&map[z][y][x]->side[i].lm_update_priority,&map[z][y][x]->side[5].color[2][2],map[z][y][x]->side[5].base_color,VEC3addVEC3R((VEC3){x,y,z},(VEC3){0.75f,0.75f,0.99f}),(VEC2){0.0f,M_PI*0.5f});
-							}
-							break;
-						}
-					}
-				}
-			}
-		}
-	end:
-		for(int x = 0;x < MAP_SIZE;x++){
-			for(int y = 0;y < MAP_SIZE;y++){
-				for(int z = 0;z < MAP_SIZE;z++){
-					if(!map[z][y][x] || map[z][y][x]->type)
-						continue;
-					for(int i = 0;i < 6;i++){
-						switch(i >> 1){
-						case VEC3_X:
-							filterSurface((IVEC3){x,y,z},i,VEC3_Y,VEC3_Z,(i & 1) * 2 - 1,0,0);
-							break;
-						case VEC3_Y:
-							filterSurface((IVEC3){x,y,z},i,VEC3_X,VEC3_Z,0,(i & 1) * 2 - 1,0);
-							break;
-						case VEC3_Z:
-							filterSurface((IVEC3){x,y,z},i,VEC3_X,VEC3_Y,0,0,(i & 1) * 2 - 1);
-							break;
-						}
-					}
-				}
-			}
-		}
-		if(n < 512)
-			Sleep(9);
-	}
-}*/
-/*
-void setUpdatePriority(VEC3 block_pos){
-	for(int x = 0;x < MAP_SIZE;x++){
-		for(int y = 0;y < MAP_SIZE;y++){
-			for(int z = 0;z < MAP_SIZE;z++){
-				if(!map[z][y][x])
-					continue;
-				float dst = VEC3distance((VEC3){x,y,z},block_pos);
-				float inv_dst = 50.0f / (dst * dst);
-				for(int i = 0;i < 6;i++)
-					map[z][y][x]->side[i].lm_update_priority = inv_dst;
-			}
-		}
-	}
-}
-*/
-int proc(HWND hwnd,UINT msg,WPARAM wParam,LPARAM lParam){
-	switch(msg){
-	case WM_KEYDOWN:
-		switch(wParam){
-		case VK_RIGHT:
-			edit_mode++;
-			break;
-		case VK_LEFT:
-			edit_mode--;
-			break;
-		case VK_ADD:
-			if(edit_mode)
-				color_select++;
-			else
-				blocktype_select++;
-			break;
-		case VK_SUBTRACT:
-			if(edit_mode)
-				color_select--;
-			else
-				blocktype_select--;
-			break;
-		}
-		break;
-	case WM_RBUTTONDOWN:{/*
-		RAY3 ray = ray3Create(camera.pos,getLookAngle(camera.dir));
-		ray3Itterate(&ray);
-		for(;;){
-			bool bound_x = ray.square_pos.x < 0 || ray.square_pos.x >= MAP_SIZE;
-			bool bound_y = ray.square_pos.y < 0 || ray.square_pos.y >= MAP_SIZE;
-			bool bound_z = ray.square_pos.z < 0 || ray.square_pos.z >= MAP_SIZE;
-			if(bound_x || bound_y || bound_z)
-				break;
-			if(map[ray.square_pos.z][ray.square_pos.y][ray.square_pos.x]){
-				block_deleted = ray.square_pos;
-				break;
-			}
-			ray3Itterate(&ray);
-		}
-		break;*/}
-	case WM_LBUTTONDOWN:;/*
-		RAY3 ray = ray3Create(camera.pos,getLookAngle(camera.dir));
-		ray3Itterate(&ray);
-		for(;;){
-			int bound_x = ray.square_pos.x < 0 | ray.square_pos.x >= MAP_SIZE;
-			int bound_y = ray.square_pos.y < 0 | ray.square_pos.y >= MAP_SIZE;
-			int bound_z = ray.square_pos.z < 0 | ray.square_pos.z >= MAP_SIZE;
-			if(bound_x || bound_y || bound_z)
-				break;
-			if(map[ray.square_pos.z][ray.square_pos.y][ray.square_pos.x]){
-				switch(edit_mode){
-				case 1:;
-					int side = ray.square_side * 2 + (ray.dir.a[ray.square_side] < 0.0f);
-					map[ray.square_pos.z][ray.square_pos.y][ray.square_pos.x]->side[side].base_color = color_pallet[color_select];
-					setUpdatePriority((VEC3){ray.square_pos.x,ray.square_pos.y,ray.square_pos.z});
-					break;
-				default:
-					ray.square_pos.a[ray.square_side] += (ray.dir.a[ray.square_side] < 0.0f) * 2 - 1;
-					map[ray.square_pos.z][ray.square_pos.y][ray.square_pos.x] = MALLOC_ZERO(sizeof(BLOCK));
-					BLOCK* block = map[ray.square_pos.z][ray.square_pos.y][ray.square_pos.x];
-					block->type = blocktype_select;
-					for(int i = 0;i < 6;i++)
-						block->side[i].base_color = color_pallet[color_select];
-					setUpdatePriority((VEC3){ray.square_pos.x,ray.square_pos.y,ray.square_pos.z});
-					break;
-				}
-				break;
-			}
-			ray3Itterate(&ray);
-		}
-		break;*/
-	case WM_MOUSEMOVE:;
-		POINT cur;
-		RECT offset;
-		VEC2 r;
-		GetCursorPos(&cur);
-		GetWindowRect(window,&offset);
-		float mx = (float)(cur.x-(offset.left+WND_SIZE.x/2))*0.005f;
-		float my = (float)(cur.y-(offset.top+WND_SIZE.y/2))*0.005f;
-		camera.dir.x += mx;
-		camera.dir.y -= my;
-		SetCursorPos(offset.left+WND_SIZE.x/2,offset.top+WND_SIZE.y/2);
-		break;
-	case WM_DESTROY: case WM_CLOSE:
-		ExitProcess(0);
-	}
-	return DefWindowProcA(hwnd,msg,wParam,lParam);
-}
 
-VEC3 getRayAngle(int x,int y){
-	VEC3 ray_ang;
+vec3 getRayAngle(int x,int y){
+	vec3 ray_ang;
 	float pxY = (((float)(x + 0.5f) * 2.0f / WND_RESOLUTION.x) - 1.0f);
 	float pxX = (((float)(y + 0.5f) * 2.0f / WND_RESOLUTION.y) - 1.0f);
 	float pixelOffsetY = pxY / (FOV.x / WND_RESOLUTION.x * 2.0f);
@@ -492,416 +130,466 @@ VEC3 getRayAngle(int x,int y){
 	return ray_ang;
 }
 
-typedef struct{
-	VEC3 pos;
-	VEC3 normal;
-	int x;
-	int y;
-}PLANE;
+vec2 pointToScreen(vec3 point){
+	vec2 screen_point;
+	vec3 pos = vec3subvec3R(point,camera.pos);
+	float temp;
+	temp  = pos.y * camera.tri.x - pos.x * camera.tri.y;
+	pos.x = pos.y * camera.tri.y + pos.x * camera.tri.x;
+	pos.y = temp;
+	temp  = pos.z * camera.tri.z - pos.x * camera.tri.w;
+	pos.x = pos.z * camera.tri.w + pos.x * camera.tri.z;
+	pos.z = temp;
+	if(pos.x <= 0.0f)
+		return (vec2){0.0f,0.0f};
+	screen_point.x = FOV.x * pos.z / pos.x + WND_RESOLUTION.x / 2.0f;
+	screen_point.y = FOV.y * pos.y / pos.x + WND_RESOLUTION.y / 2.0f;
+	return screen_point;
+}
 
-PLANE rayGetPlane(RAY3 ray){
-	switch(ray.square_side){
-	case VEC3_X:
-		return (PLANE){{ray.square_pos.x + (ray.dir.x < 0.0f),ray.square_pos.y,ray.square_pos.z},{1.0f,0.0f,0.0f},VEC3_Y,VEC3_Z};
-	case VEC3_Y:
-		return (PLANE){{ray.square_pos.x,ray.square_pos.y + (ray.dir.y < 0.0f),ray.square_pos.z},{0.0f,1.0f,0.0f},VEC3_X,VEC3_Z};
-	case VEC3_Z:
-		return (PLANE){{ray.square_pos.x,ray.square_pos.y,ray.square_pos.z + (ray.dir.z < 0.0f)},{0.0f,0.0f,1.0f},VEC3_X,VEC3_Y};
+plane_t getPlane(vec3 pos,vec3 dir,int side,float block_size){
+	switch(side){
+	case VEC3_X: return (plane_t){{pos.x + (dir.x < 0.0f) * block_size,pos.y,pos.z},{1.0f,0.0f,0.0f},VEC3_Y,VEC3_Z};
+	case VEC3_Y: return (plane_t){{pos.x,pos.y + (dir.y < 0.0f) * block_size,pos.z},{0.0f,1.0f,0.0f},VEC3_X,VEC3_Z};
+	case VEC3_Z: return (plane_t){{pos.x,pos.y,pos.z + (dir.z < 0.0f) * block_size},{0.0f,0.0f,1.0f},VEC3_X,VEC3_Y};
 	}
 }
 
-float rayIntersectPlane(VEC3 pos,VEC3 dir,VEC3 plane){
-	return -VEC3dotR(pos,plane) / VEC3dotR(dir,plane);
+float rayIntersectPlane(vec3 pos,vec3 dir,vec3 plane){
+	return vec3dotR(pos,plane) / vec3dotR(dir,plane);
 }
-/*
-void again(int x,int y){
-	RAY3 ray = ray3Create(camera.pos,getRayAngle(x,y));
-	ray3Itterate(&ray);
-	for(;;){
-		int bound_x = ray.square_pos.x < 0 || ray.square_pos.x >= MAP_SIZE;
-		int bound_y = ray.square_pos.y < 0 || ray.square_pos.y >= MAP_SIZE;
-		int bound_z = ray.square_pos.z < 0 || ray.square_pos.z >= MAP_SIZE;
-		if(bound_x || bound_y || bound_z){
-			int side;
-			VEC2 uv = sampleCube(ray.dir,&side);
-			if(side == 1 && uv.x > 0.6f && uv.x < 0.8f && uv.y > 0.4f && uv.y < 0.6f){
-				vram.draw[x * (int)WND_RESOLUTION.y + y] = (PIXEL){255,255,255};
-				continue;
+
+int block_type;
+portal_t portal_place_buffer;
+
+void addSubVoxel(int vx,int vy,int vz,int x,int y,int z,int depth){
+	if(--depth == -1)
+		return;
+	for(int lx = 0;lx < 2;lx++){
+		for(int ly = 0;ly < 2;ly++){
+			for(int lz = 0;lz < 2;lz++){
+				bool offset_x = x >> depth & 1;
+				bool offset_y = y >> depth & 1;
+				bool offset_z = z >> depth & 1;
+				if(offset_x == lx && offset_y == ly && offset_z == lz){
+					addSubVoxel(vx + offset_x << 1,vy + offset_y << 1,vz + offset_z << 1,x,y,z,depth);
+					continue;
+				}
+				setVoxelLM(vx + lx,vy + ly,vz + lz,edit_depth - depth,block_type);
 			}
-			vram.draw[x * (int)WND_RESOLUTION.y + y] = (PIXEL){200,200,200};
+		}
+	}
+}
+
+int tool_select;
+
+int proc(HWND hwnd,UINT msg,WPARAM wParam,LPARAM lParam){
+	switch(msg){
+	case WM_KEYDOWN:
+		switch(wParam){
+		case VK_F8:
+			test_bool = 0;
+			break;
+		case VK_F9:
+			test_bool = 1;
+			break;
+		case VK_UP:
+			tool_select ^= true;
+			break;
+		case VK_DOWN:
+			tool_select--;
+			break;
+		case VK_RIGHT:
+			block_type++;
+			if(block_type > sizeof(material_array) / sizeof(material_t))
+				block_type = sizeof(material_array) / sizeof(material_t);
+			break;
+		case VK_LEFT:
+			block_type--;
+			if(block_type < 0)
+				block_type = 0;
+			break;
+		case VK_ADD:
+			edit_depth++;
+			break;
+		case VK_SUBTRACT:
+			edit_depth--;
 			break;
 		}
-		IVEC3 block = ray.square_pos;
-		if(map[block.z][block.y][block.x]){
-			int side = ray.square_side * 2 + (ray.dir.a[ray.square_side] < 0.0f);
-			if(map[block.z][block.y][block.x]->type){
-				vram.draw[x * (int)WND_RESOLUTION.y + y] = (PIXEL){255,255,255};
+		break;
+	case WM_RBUTTONDOWN:{
+		vec3 dir = getLookAngle(camera.dir);
+		traverse_init_t init = initTraverse(vec3divR(camera.pos,MAP_SIZE));
+		nodepointer_hit_t result = traverseTreeNode(ray3Create(init.pos,dir),init.node);
+		if(!result.node)
+			break;
+		block_t* block = (*result.node)->block;
+		removeVoxel(result.node);
+		if(block->depth < edit_depth){
+			ivec3 block_pos_i = block->pos;
+			vec3 block_pos;
+			block_pos = (vec3){block_pos_i.x << (edit_depth - block->depth),block_pos_i.y << (edit_depth - block->depth),block_pos_i.z << (edit_depth - block->depth)};
+			vec3 pos;
+			float block_size = (float)MAP_SIZE / (1 << block->depth) * 2.0f;
+			pos.x = block->pos.x * block_size;
+			pos.y = block->pos.y * block_size;
+			pos.z = block->pos.z * block_size;
+			plane_t plane = getPlane(pos,dir,result.side,block_size);
+			vec3 plane_pos = vec3subvec3R(plane.pos,camera.pos);
+			float dst = rayIntersectPlane(plane_pos,dir,plane.normal);
+			vec3 hit_pos = vec3addvec3R(camera.pos,vec3mulR(dir,dst));
+			vec2 uv = {(hit_pos.a[plane.x] - plane.pos.a[plane.x]) / block_size,(hit_pos.a[plane.y] - plane.pos.a[plane.y]) / block_size};
+			uv.x *= 1 << edit_depth - block->depth;
+			uv.y *= 1 << edit_depth - block->depth;
+			block_pos.a[result.side] += ((dir.a[result.side] < 0.0f) << (edit_depth - block->depth)) - (dir.a[result.side] < 0.0f);
+			block_pos.a[plane.x] += tFloorf(uv.x);
+			block_pos.a[plane.y] += tFloorf(uv.y);
+			int block_count = 1 << edit_depth - block->depth;
+			addSubVoxel(block_pos_i.x << 1,block_pos_i.y << 1,block_pos_i.z << 1,(int)block_pos.x & ((1 << edit_depth - block->depth) - 1),(int)block_pos.y & ((1 << edit_depth - block->depth) - 1),(int)block_pos.z & ((1 << edit_depth - block->depth) - 1),edit_depth - block->depth);
+		}
+		break;}
+	case WM_LBUTTONDOWN:;
+		vec3 dir = getLookAngle(camera.dir);
+		traverse_init_t init = initTraverse(vec3divR(camera.pos,MAP_SIZE));
+		blockray_t result = traverseTree(ray3Create(init.pos,dir),init.node);
+		if(!result.node)
+			break;
+		block_t* block = result.node->block;
+		if(tool_select){
+			int side = result.side * 2 + (dir.a[result.side] < 0.0f);
+			if(!portal_place_buffer.block || portal_place_buffer.block->depth != block->depth){
+				portal_place_buffer.block = block;
+				portal_place_buffer.side = side;
 				break;
 			}
-			VEC2 uv = ray3UV(ray);
-			if(uv.x < 0.0f || uv.x > 1.0f || uv.y < 0.0f || uv.y > 1.0f)
-				return;
-			VEC3 color[4];
-			VEC2 bl_filter = {tFract(uv.x * 2.0f + 0.5f),tFract(uv.y * 2.0f + 0.5f)};
-			IVEC2 bl_pos = {uv.x * 2.0f + 0.5f,uv.y * 2.0f + 0.5f};
-
-			color[0] = map[block.z][block.y][block.x]->side[side].color[bl_pos.x + 0][bl_pos.y + 0];
-			color[1] = map[block.z][block.y][block.x]->side[side].color[bl_pos.x + 1][bl_pos.y + 0];
-			color[2] = map[block.z][block.y][block.x]->side[side].color[bl_pos.x + 0][bl_pos.y + 1];
-			color[3] = map[block.z][block.y][block.x]->side[side].color[bl_pos.x + 1][bl_pos.y + 1];
-
-			VEC3 m_1 = VEC3mixR(color[0],color[1],bl_filter.x);
-			VEC3 m_2 = VEC3mixR(color[2],color[3],bl_filter.x);
-			VEC3 f_color = VEC3mixR(m_1,m_2,bl_filter.y);
-
-			VEC3mulVEC3(&f_color,map[block.z][block.y][block.x]->side[side].base_color);
-
-			if(((int)(uv.x * 4.0f) & 1) ^ ((int)(uv.y * 4.0f) & 1))
-				VEC3mul(&f_color,0.75f);
-					
-			vram.draw[x * (int)WND_RESOLUTION.y + y] = (PIXEL){tMinf(f_color.r * 255.0f,255.0f),tMinf(f_color.g * 255.0f,255.0f),tMinf(f_color.b * 255.0f,255.0f)};
+			block->side[side].portal = portal_place_buffer;
+			portal_place_buffer.block->side[portal_place_buffer.side].portal.block = block;
+			portal_place_buffer.block->side[portal_place_buffer.side].portal.side = side;
+			portal_place_buffer.block = 0;
 			break;
 		}
-		ray3Itterate(&ray);
-	}
-}
-*/
-VEC3 getSubCoords(RAY3 ray){
-	VEC2 wall;
-	switch(ray.square_side){
-	case 0:
-		wall.x = tFract(ray.pos.y + (ray.side.x - ray.delta.x) * ray.dir.y) * 2.0f;
-		wall.y = tFract(ray.pos.z + (ray.side.x - ray.delta.x) * ray.dir.z) * 2.0f;
-		return (VEC3){(ray.dir.x < 0.0f) * 1.0f,wall.x,wall.y};
-	case 1:
-		wall.x = tFract(ray.pos.x + (ray.side.y - ray.delta.y) * ray.dir.x) * 2.0f;
-		wall.y = tFract(ray.pos.z + (ray.side.y - ray.delta.y) * ray.dir.z) * 2.0f;
-		return (VEC3){wall.x,(ray.dir.y < 0.0f) * 1.0f,wall.y};
-	case 2:
-		wall.x = tFract(ray.pos.x + (ray.side.z - ray.delta.z) * ray.dir.x) * 2.0f;
-		wall.y = tFract(ray.pos.y + (ray.side.z - ray.delta.z) * ray.dir.y) * 2.0f;
-		return (VEC3){wall.x,wall.y,(ray.dir.z < 0.0f) * 1.0f};
-	}
-}
-
-bool traverseTree(RAY3 ray,BLOCK_NODE* node,int x,int y,int depth){
-	if(node->block){
-		//PLANE plane = rayGetPlane(ray);
-		for(int px = 0;px < RD_BLOCK;px++){
-			for(int py = 0;py < RD_BLOCK;py++){
-				vram.draw[(x + px) * (int)WND_RESOLUTION.y + (y + py)] = (PIXEL){255,depth ? 255 : 0,0};
-			}
+		ivec3 block_pos_i = block->pos;
+		block_pos_i.a[result.side] += (dir.a[result.side] < 0.0f) * 2 - 1;
+		vec3 block_pos;
+		if(block->depth > edit_depth){
+			int shift = block->depth - edit_depth;
+			block_pos = (vec3){block_pos_i.x >> shift,block_pos_i.y >> shift,block_pos_i.z >> shift};
 		}
-		return true;
-	}
-	for(;;){
-		bool bound_x = ray.square_pos.x < 0 || ray.square_pos.x >= 2;
-		bool bound_y = ray.square_pos.y < 0 || ray.square_pos.y >= 2;
-		bool bound_z = ray.square_pos.z < 0 || ray.square_pos.z >= 2;
-		if(bound_x || bound_y || bound_z){
-			if(depth)
-				return false;
-			for(int px = 0;px < RD_BLOCK;px++){
-				for(int py = 0;py < RD_BLOCK;py++){
-					int side;
-					VEC2 uv = sampleCube(ray.dir,&side);
-					if(side == 1 && uv.x > 0.6f && uv.x < 0.8f && uv.y > 0.4f && uv.y < 0.6f){
-						vram.draw[(x + px) * (int)WND_RESOLUTION.y + (y + py)] = (PIXEL){255,255,255};
-						continue;
-					}
-					vram.draw[(x + px) * (int)WND_RESOLUTION.y + (y + py)] = (PIXEL){200,200,200};
-				}
-			}
-			return true;
+		else{
+			int shift = edit_depth - block->depth;
+			block_pos = (vec3){block_pos_i.x << shift,block_pos_i.y << shift,block_pos_i.z << shift};
 		}
-		IVEC3 block = ray.square_pos;
-		BLOCK_NODE* node_deep = node->block_node[block.z][block.y][block.x];
-		if(node_deep){
-			IVEC3 pos_t = ray.square_pos;
-			if(traverseTree(ray3Create(getSubCoords(ray),ray.dir),node_deep,x,y,depth + 1))
-				return true;
-			ray.square_pos = pos_t;
-			VEC3mul(&ray.delta,2.0f);
+		if(block->depth < edit_depth){
+			vec3 pos;
+			float block_size = (float)MAP_SIZE / (1 << block->depth) * 2.0f;
+			pos.x = block->pos.x * block_size;
+			pos.y = block->pos.y * block_size;
+			pos.z = block->pos.z * block_size;
+			plane_t plane = getPlane(pos,dir,result.side,block_size);
+			vec3 plane_pos = vec3subvec3R(plane.pos,camera.pos);
+			float dst = rayIntersectPlane(plane_pos,dir,plane.normal);
+			vec3 hit_pos = vec3addvec3R(camera.pos,vec3mulR(dir,dst));
+			vec2 uv = {(hit_pos.a[plane.x] - plane.pos.a[plane.x]) / block_size,(hit_pos.a[plane.y] - plane.pos.a[plane.y]) / block_size};
+			uv.x *= 1 << edit_depth - block->depth;
+			uv.y *= 1 << edit_depth - block->depth;
+			block_pos.a[result.side] += ((dir.a[result.side] > 0.0f) << (edit_depth - block->depth)) - (dir.a[result.side] > 0.0f);
+			block_pos.a[plane.x] += tFloorf(uv.x);
+			block_pos.a[plane.y] += tFloorf(uv.y);
 		}
-		ray3Itterate(&ray);
+		setVoxelLM(block_pos.x,block_pos.y,block_pos.z,edit_depth,block_type);
+		break;
+	case WM_MOUSEMOVE:;
+		POINT cur;
+		RECT offset;
+		vec2 r;
+		GetCursorPos(&cur);
+		GetWindowRect(window,&offset);
+		float mx = (float)(cur.x - (offset.left + WND_SIZE.x / 2)) * 0.005f;
+		float my = (float)(cur.y - (offset.top  + WND_SIZE.y / 2)) * 0.005f;
+		camera.dir.x += mx;
+		camera.dir.y -= my;
+		SetCursorPos(offset.left + WND_SIZE.x / 2,offset.top + WND_SIZE.y / 2);
+		break;
+	case WM_DESTROY: case WM_CLOSE:
+		ExitProcess(0);
 	}
+	return DefWindowProcA(hwnd,msg,wParam,lParam);
 }
 
-void drawPixel(int x,int y,BLOCK_NODE* node){
-	RAY3 ray = ray3Create(VEC3divR(camera.pos,MAP_SIZE),getRayAngle(0.5f * RD_BLOCK - 0.5f + x,0.5f * RD_BLOCK - 0.5f + y));
-	traverseTree(ray,node,x,y,0);/*
-	for(;;){
-		int bound_x = ray.square_pos.x < 0 || ray.square_pos.x >= 2;
-		int bound_y = ray.square_pos.y < 0 || ray.square_pos.y >= 2;
-		int bound_z = ray.square_pos.z < 0 || ray.square_pos.z >= 2;
-		if(bound_x || bound_y || bound_z){
-				for(int px = 0;px < RD_BLOCK;px++){
-					for(int py = 0;py < RD_BLOCK;py++){
-						int side;
-						VEC2 uv = sampleCube(ray.dir,&side);
-						if(side == 1 && uv.x > 0.6f && uv.x < 0.8f && uv.y > 0.4f && uv.y < 0.6f){
-							vram.draw[(x + px) * (int)WND_RESOLUTION.y + (y + py)] = (PIXEL){255,255,255};
-							continue;
-						}
-						vram.draw[(x + px) * (int)WND_RESOLUTION.y + (y + py)] = (PIXEL){200,200,200};
-					}
-				}
-				break;
-			node = pre_node;
+vec3 getReflectLuminance(vec3 pos,vec3 dir){
+	traverse_init_t init = initTraverse(vec3divR(pos,MAP_SIZE));
+	blockray_t reflect = traverseTree(ray3Create(init.pos,dir),init.node);
+	
+	if(!reflect.node){
+		int side;
+		vec2 uv = sampleCube(dir,&side);
+		if(side == 1 && uv.x > 0.6f && uv.x < 0.8f && uv.y > 0.6f && uv.y < 0.8f){
+			return (vec3){1.0f,2.0f,4.0f};
 		}
-		IVEC3 block = ray.square_pos;
-		if(node.block[block.z][block.y][block.x]){
-			int side = ray.square_side * 2 + (ray.dir.a[ray.square_side] < 0.0f);
-			if(map[block.z][block.y][block.x]->type){
-				vram.draw[x * (int)WND_RESOLUTION.y + y] = (PIXEL){255,255,255};
-				break;
-			}
-			PLANE plane = rayGetPlane(ray);
-			for(int px = 0;px < RD_BLOCK;px++){
-				for(int py = 0;py < RD_BLOCK;py++){/*
-					ray.dir = getRayAngle(x + px,y + py);
-					float dst = rayIntersectPlane(VEC3subVEC3R(ray.pos,plane.pos),ray.dir,plane.normal);
-					VEC3 pos = VEC3addVEC3R(ray.pos,VEC3mulR(ray.dir,dst));
-					VEC2 uv = {pos.a[plane.x] - ray.square_pos.a[plane.x],pos.a[plane.y] - ray.square_pos.a[plane.y]};
-					if(uv.x < 0.0f || uv.x > 1.0f || uv.y < 0.0f || uv.y > 1.0f){
-						again(x + px,y + py);
-						continue;
-					}
-					VEC3 color[4];
-					VEC2 bl_filter = {tFract(uv.x * 2.0f + 0.5f),tFract(uv.y * 2.0f + 0.5f)};
-					IVEC2 bl_pos = {uv.x * 2.0f + 0.5f,uv.y * 2.0f + 0.5f};
-
-					color[0] = map[block.z][block.y][block.x]->side[side].color[bl_pos.x + 0][bl_pos.y + 0];
-					color[1] = map[block.z][block.y][block.x]->side[side].color[bl_pos.x + 1][bl_pos.y + 0];
-					color[2] = map[block.z][block.y][block.x]->side[side].color[bl_pos.x + 0][bl_pos.y + 1];
-					color[3] = map[block.z][block.y][block.x]->side[side].color[bl_pos.x + 1][bl_pos.y + 1];
-
-					VEC3 m_1 = VEC3mixR(color[0],color[1],bl_filter.x);
-					VEC3 m_2 = VEC3mixR(color[2],color[3],bl_filter.x);
-					VEC3 f_color = VEC3mixR(m_1,m_2,bl_filter.y);
-
-					VEC3mulVEC3(&f_color,map[block.z][block.y][block.x]->side[side].base_color);
-
-					if(((int)(uv.x * 4.0f) & 1) ^ ((int)(uv.y * 4.0f) & 1))
-						VEC3mul(&f_color,0.75f);
-					
-					vram.draw[(x + px) * (int)WND_RESOLUTION.y + (y + py)] = (PIXEL){tMinf(f_color.r * 255.0f,255.0f),tMinf(f_color.g * 255.0f,255.0f),tMinf(f_color.b * 255.0f,255.0f)};
-					
-					vram.draw[(x + px) * (int)WND_RESOLUTION.y + (y + py)] = (PIXEL){255,0,0};
-				}
-			}
-			break;
-		}
-		ray3Itterate(&ray);
-	}*/
+		else
+			return (vec3){0.8f,0.4f,0.2f};
+	}
+	block_t* block = reflect.node->block;
+	material_t material = material_array[block->material];
+	vec3 block_pos;
+	float block_size = (float)MAP_SIZE / (1 << block->depth) * 2.0f;
+	block_pos.x = block->pos.x * block_size;
+	block_pos.y = block->pos.y * block_size;
+	block_pos.z = block->pos.z * block_size;
+	plane_t plane_r = getPlane(block_pos,dir,reflect.side,block_size);
+	vec3 plane_pos_r = vec3subvec3R(plane_r.pos,pos);
+	float dst = rayIntersectPlane(plane_pos_r,dir,plane_r.normal);
+	vec3addvec3(&pos,vec3mulR(dir,dst));
+	vec2 uv_r = {(pos.a[plane_r.x] - plane_r.pos.a[plane_r.x]) / block_size,(pos.a[plane_r.y] - plane_r.pos.a[plane_r.y]) / block_size};
+	int side_r = reflect.side * 2 + (dir.a[reflect.side] < 0.0f);
+				
+	vec3 luminance_r = getLuminance(block->side[side_r],uv_r,block->depth);
+	if(material.texture){
+		float texture_x = uv_r.x * (32.0f / (1 << block->depth));
+		float texture_y = uv_r.y * (32.0f / (1 << block->depth));
+		pixel_t text = material.texture[(int)(tFract(texture_x) * material.texture[0].size) * material.texture[0].size + (int)(tFract(texture_y) * material.texture[0].size)];
+		vec3mulvec3(&luminance_r,(vec3){text.r * 0.00392f,text.b * 0.00392f,text.g * 0.00392f});
+	}
+	return luminance_r;
 }
 
-typedef struct{
-	char w;
-	char s;
-	char d;
-	char a;
-}KEYS;
+vec3 getLuminance(block_side_t side,vec2 uv,int depth){
+	if(depth >= LM_MAXDEPTH)
+		return side.luminance;
+	int lm_size = 1 << LM_MAXDEPTH - depth;
 
-KEYS key;
+	vec2 test_1 = {tFractUnsigned(uv.x * lm_size + 0.5f),tFractUnsigned(uv.y * lm_size + 0.5f)};
 
-void walkPhysics(){
-	char hx = FALSE,hy = FALSE,hz = FALSE;/*
-	for(float x = -0.2f;x <= 0.2f;x += 0.05f){
-		for(float y = -0.2f;y <= 0.2f;y += 0.05f){
-			if(map[(int)(camera.pos.z - 1.8f + camera.vel.z)][(int)(camera.pos.y + y)][(int)(camera.pos.x + x)])
-				hz = TRUE;
-		}
-	}
-	for(float x = -1.8f;x <= 0.1f;x += 0.05f){
-		for(float y = -0.2f;y <= 0.2f;y += 0.05f){
-			if(map[(int)(camera.pos.z + x)][(int)(camera.pos.y + y)][(int)(camera.pos.x - 0.2f + camera.vel.x)])
-				hx = TRUE;
-			if(map[(int)(camera.pos.z + x)][(int)(camera.pos.y + y)][(int)(camera.pos.x + 0.2f + camera.vel.x)])
-				hx = TRUE;
-			if(map[(int)(camera.pos.z + x)][(int)(camera.pos.y + -0.2f + camera.vel.y)][(int)(camera.pos.x + y)])
-				hy = TRUE;
-			if(map[(int)(camera.pos.z + x)][(int)(camera.pos.y + 0.2f + camera.vel.y)][(int)(camera.pos.x + y)])
-				hy = TRUE;
-		}
-	}*/
-	VEC3addVEC3(&camera.pos,camera.vel);
-	if(hx){
-		camera.pos.x -= camera.vel.x;
-		camera.vel.x = 0.0f;
-	}
-	if(hy){
-		camera.pos.y -= camera.vel.y;
-		camera.vel.y = 0.0f;
-	}
-	if(hz){
-		camera.pos.z -= camera.vel.z;
-		camera.vel.z = 0.0f;
-		if(key.w){
-			float mod = key.d || key.a ? WALK_SPEED_DIA : WALK_SPEED;
-			camera.vel.x += cosf(camera.dir.x) * mod * 2.0f;
-			camera.vel.y += sinf(camera.dir.x) * mod * 2.0f;
-		}
-		if(key.s){
-			float mod = key.d || key.a ? WALK_SPEED_DIA : WALK_SPEED;
-			camera.vel.x -= cosf(camera.dir.x) * mod * 2.0f;
-			camera.vel.y -= sinf(camera.dir.x) * mod * 2.0f;
-		}
-		if(key.d){
-			float mod = key.s || key.w ? WALK_SPEED_DIA : WALK_SPEED;
-			camera.vel.x += cosf(camera.dir.x + M_PI * 0.5f) * mod * 2.0f;
-			camera.vel.y += sinf(camera.dir.x + M_PI * 0.5f) * mod * 2.0f;
-		}
-		if(key.a){
-			float mod = key.s || key.w ? WALK_SPEED_DIA : WALK_SPEED;
-			camera.vel.x -= cosf(camera.dir.x + M_PI * 0.5f) * mod * 2.0f;
-			camera.vel.y -= sinf(camera.dir.x + M_PI * 0.5f) * mod * 2.0f;
-		}
-		if(GetKeyState(VK_SPACE) & 0x80)
-			camera.vel.z = 0.25f;
-		VEC3mul(&camera.vel,GROUND_FRICTION); 
-	}
-	else
-		VEC3mul(&camera.vel,0.99f);
-	camera.vel.z -= 0.015f;
-}
+	int lm_offset_x,lm_offset_y;
+	lm_offset_x = uv.x * lm_size + 0.5f;
+	lm_offset_y = uv.y * lm_size + 0.5f;
 
-void physics(){
-	for(;;){
-		key.w = GetKeyState(VK_W) & 0x80;
-		key.s = GetKeyState(VK_S) & 0x80;
-		key.d = GetKeyState(VK_D) & 0x80;
-		key.a = GetKeyState(VK_A) & 0x80;
-		camera.tri = (VEC4){cosf(camera.dir.x),sinf(camera.dir.x),cosf(camera.dir.y),sinf(camera.dir.y)};
-		if(MV_MODE){
-			walkPhysics();
-			Sleep(3);
-			continue;
-		}
-		float mod = (GetKeyState(VK_LCONTROL) & 0x80) ? 3.0f : 1.0f;
-		if(key.w){
-			float mod_2 = key.d || key.a ? mod * 0.042f : mod * 0.06f;
-			camera.pos.x += cosf(camera.dir.x) * mod_2;
-			camera.pos.y += sinf(camera.dir.x) * mod_2;
-		}
-		if(key.s){
-			float mod_2 = key.d || key.a ? mod * 0.042f : mod * 0.06f;
-			camera.pos.x -= cosf(camera.dir.x) * mod_2;
-			camera.pos.y -= sinf(camera.dir.x) * mod_2;
-		}
-		if(key.d){
-			float mod_2 = key.s || key.w ? mod * 0.042f : mod * 0.06f;
-			camera.pos.x += cosf(camera.dir.x + M_PI * 0.5f) * mod_2;
-			camera.pos.y += sinf(camera.dir.x + M_PI * 0.5f) * mod_2;
-		}
-		if(key.a){
-			float mod_2 = key.s || key.w ? mod * 0.042f : mod * 0.06f;
-			camera.pos.x -= cosf(camera.dir.x + M_PI * 0.5f) * mod_2;
-			camera.pos.y -= sinf(camera.dir.x + M_PI * 0.5f) * mod_2;
-		}
-		if(GetKeyState(VK_SPACE) & 0x80) 
-			camera.pos.z += 0.04f * mod;
-		if(GetKeyState(VK_LSHIFT) & 0x80) 
-			camera.pos.z -= 0.04f * mod;
-		Sleep(3);
-	}
+	vec3 lm_1 = side.luminance_p[lm_offset_x * (lm_size + 2) + lm_offset_y];
+	vec3 lm_2 = side.luminance_p[lm_offset_x * (lm_size + 2) + lm_offset_y + 1];
+	vec3 lm_3 = side.luminance_p[lm_offset_x * (lm_size + 2) + lm_offset_y + (lm_size + 2)];
+	vec3 lm_4 = side.luminance_p[lm_offset_x * (lm_size + 2) + lm_offset_y + (lm_size + 2) + 1];
+
+	vec3 mix_1 = vec3mixR(lm_1,lm_3,test_1.x);
+	vec3 mix_2 = vec3mixR(lm_2,lm_4,test_1.x);
+
+	return vec3mixR(mix_1,mix_2,test_1.y);
 }
 
 void draw_1(int p){
-	BLOCK_NODE* node = &block_node;
-	VEC3 pos = VEC3divR(camera.pos,MAP_SIZE);
-	for(;;){
-		BLOCK_NODE* node_zoom = node->block_node[(int)pos.z & 1][(int)pos.y & 1][(int)pos.x & 1];
-		if(!node_zoom)
-			break;
-		node = node_zoom;
-		VEC3mul(&pos,2.0f);
-	}
+	vec3 camera_pos = camera.pos;
+	traverse_init_t init = initTraverse(vec3divR(camera_pos,MAP_SIZE));
 	switch(p){
 	case 0:
-		for(int x = 0;x < WND_RESOLUTION.x / 2;x += RD_BLOCK)
-			for(int y = 0;y < WND_RESOLUTION.y / 2;y += RD_BLOCK)
-				drawPixel(x,y,node);
+		for(int x = WND_RESOLUTION.x / 2;x >= 0;x -= RD_BLOCK)
+			for(int y = WND_RESOLUTION.y / 2;y >= 0;y -= RD_BLOCK)
+				drawPixelGroup(x,y,init,camera_pos);
+		for(int x = ((int)WND_RESOLUTION.x / 2) % RD_BLOCK;x >= 0;x--){
+			for(int y = WND_RESOLUTION.y / 2;y >= 0;y--){
+				tracePixel(init,getRayAngle(x,y),x,y,camera_pos);
+			}
+		}
 		break;
 	case 1:
-		for(int x = 0;x < WND_RESOLUTION.x / 2;x += RD_BLOCK)
-			for(int y = WND_RESOLUTION.y;y >= WND_RESOLUTION.y / 2;y -= RD_BLOCK)
-				drawPixel(x,y,node);
+		for(int x = WND_RESOLUTION.x / 2;x >= 0;x -= RD_BLOCK)
+			for(int y = WND_RESOLUTION.y / 2;y < WND_RESOLUTION.y;y += RD_BLOCK)
+				drawPixelGroup(x,y,init,camera_pos);
+		for(int x = ((int)WND_RESOLUTION.x / 2) % RD_BLOCK;x >= 0;x--){
+			for(int y = WND_RESOLUTION.y / 2;y < WND_RESOLUTION.y;y++){
+				tracePixel(init,getRayAngle(x,y),x,y,camera_pos);
+			}
+		}
 		break;
 	case 2:
-		for(int x = WND_RESOLUTION.x;x >= WND_RESOLUTION.x / 2;x -= RD_BLOCK)
-			for(int y = 0;y < WND_RESOLUTION.y / 2;y += RD_BLOCK)
-				drawPixel(x,y,node);
+		for(int x = WND_RESOLUTION.x / 2;x < WND_RESOLUTION.x;x += RD_BLOCK)
+			for(int y = WND_RESOLUTION.y / 2;y >= 0;y -= RD_BLOCK)
+				drawPixelGroup(x,y,init,camera_pos);
 		break;
 	case 3:
-		for(int x = WND_RESOLUTION.x;x >= WND_RESOLUTION.x / 2;x -= RD_BLOCK)
-			for(int y = WND_RESOLUTION.y;y >= WND_RESOLUTION.y / 2;y -= RD_BLOCK)
-				drawPixel(x,y,node);
+		for(int x = WND_RESOLUTION.x / 2;x < WND_RESOLUTION.x;x += RD_BLOCK)
+			for(int y = WND_RESOLUTION.y / 2;y < WND_RESOLUTION.y;y += RD_BLOCK)
+				drawPixelGroup(x,y,init,camera_pos);
 		break;
+	}
+}
+
+void drawLine(vec2 pos_1,vec2 pos_2,pixel_t color){
+	if(pos_1.x == 0.0f || pos_2.x == 0.0f)
+		return;
+	bool bound_1_x = pos_1.x > WND_RESOLUTION.x - 1.0f || pos_1.x < 0.0f;
+	bool bound_1_y = pos_1.y > WND_RESOLUTION.y - 1.0f || pos_1.y < 0.0f;
+	bool bound_2_x = pos_2.x > WND_RESOLUTION.x - 1.0f || pos_2.x < 0.0f;
+	bool bound_2_y = pos_2.y > WND_RESOLUTION.y - 1.0f || pos_2.y < 0.0f;
+	bool bound_1 = bound_1_x || bound_1_y;
+	bool bound_2 = bound_2_x || bound_2_y;
+	if(bound_1 && bound_2)
+		return;
+	if(bound_1){
+		vec2 temp = pos_1;
+		pos_1 = pos_2;
+		pos_2 = temp;
+	}
+	vec2 dir = vec2normalizeR(vec2subvec2R(pos_2,pos_1));
+	ray2_t ray = ray2Create(pos_1,dir);
+	while(ray.square_pos.x != (int)pos_2.x && ray.square_pos.y != (int)pos_2.y){
+		vram.draw[ray.square_pos.x * (int)WND_RESOLUTION.y + ray.square_pos.y] = color;
+		ray2Itterate(&ray);
+		bool bound_x = ray.square_pos.x < 0 || ray.square_pos.x >= WND_RESOLUTION.x;
+		bool bound_y = ray.square_pos.y < 0 || ray.square_pos.y >= WND_RESOLUTION.y;
+		if(bound_x || bound_y)
+			break;
 	}
 }
 
 void draw(){
 	for(;;){
-		unsigned long long t = __rdtsc();
+		//printf("%f:%f:%f\n",camera.pos.x,camera.pos.y,camera.pos.z);
 		is_rendering = true;
+		unsigned long long t = __rdtsc();
 		HANDLE draw_threads[4];
-		draw_threads[0] = CreateThread(0,0,draw_1,(void*)0,0,0);
-		draw_threads[1] = CreateThread(0,0,draw_1,(void*)1,0,0);
-		draw_threads[2] = CreateThread(0,0,draw_1,(void*)2,0,0);
-		draw_threads[3] = CreateThread(0,0,draw_1,(void*)3,0,0);
+		draw_threads[0] = CreateThread(0,0,(LPTHREAD_START_ROUTINE)draw_1,(void*)0,0,0);
+		draw_threads[1] = CreateThread(0,0,(LPTHREAD_START_ROUTINE)draw_1,(void*)1,0,0);
+		draw_threads[2] = CreateThread(0,0,(LPTHREAD_START_ROUTINE)draw_1,(void*)2,0,0);
+		draw_threads[3] = CreateThread(0,0,(LPTHREAD_START_ROUTINE)draw_1,(void*)3,0,0);
 		WaitForMultipleObjects(4,draw_threads,TRUE,INFINITE);
-		if(block_deleted.x != -1){
 
+		int f = tMin(__rdtsc() - t >> 18,WND_RESOLUTION.x - 1);
+
+		for(int i = 0;i < f;i++){
+			for(int j = 10;j < 20;j++){
+				vram.draw[i * (int)WND_RESOLUTION.y + j].g = 255;
+			}
 		}
+
+		vec3 look_direction = getLookAngle(camera.dir);
+		traverse_init_t init = initTraverse(vec3divR(camera.pos,MAP_SIZE));
+		blockray_t result = traverseTree(ray3Create(init.pos,look_direction),init.node);
+		if(result.node){
+			block_t* block = result.node->block;
+			float block_size = (float)MAP_SIZE / (1 << edit_depth) * 2.0f;
+
+			ivec3 block_pos_i = block->pos;
+			
+			block_pos_i.a[result.side] += (look_direction.a[result.side] < 0.0f) * 2 - 1;
+			vec3 block_pos;
+			if(block->depth > edit_depth)
+				block_pos = (vec3){block_pos_i.x >> (block->depth - edit_depth),block_pos_i.y >> (block->depth - edit_depth),block_pos_i.z >> (block->depth - edit_depth)};
+			else
+				block_pos = (vec3){block_pos_i.x << (edit_depth - block->depth),block_pos_i.y << (edit_depth - block->depth),block_pos_i.z << (edit_depth - block->depth)};
+			vec3 point[8];
+			vec2 screen_point[8];
+
+			if(block->depth < edit_depth){
+				vec3 pos;
+				float block_size = (float)MAP_SIZE / (1 << block->depth) * 2.0f;
+				pos.x = block->pos.x * block_size;
+				pos.y = block->pos.y * block_size;
+				pos.z = block->pos.z * block_size;
+				plane_t plane = getPlane(pos,look_direction,result.side,block_size);
+				vec3 plane_pos = vec3subvec3R(plane.pos,camera.pos);
+				float dst = rayIntersectPlane(plane_pos,look_direction,plane.normal);
+				vec3 hit_pos = vec3addvec3R(camera.pos,vec3mulR(look_direction,dst));
+				vec2 uv = {(hit_pos.a[plane.x] - plane.pos.a[plane.x]) / block_size,(hit_pos.a[plane.y] - plane.pos.a[plane.y]) / block_size};
+				uv.x *= 1 << edit_depth - block->depth;
+				uv.y *= 1 << edit_depth - block->depth;
+				block_pos.a[result.side] += ((look_direction.a[result.side] > 0.0f) << (edit_depth - block->depth)) - (look_direction.a[result.side] > 0.0f);
+				block_pos.a[plane.x] += tFloorf(uv.x);
+				block_pos.a[plane.y] += tFloorf(uv.y);
+			}
+
+			vec3mul(&block_pos,block_size);
+
+			point[0] = (vec3){block_pos.x + 0.0f,block_pos.y + 0.0f,block_pos.z + 0.0f};
+			point[1] = (vec3){block_pos.x + 0.0f,block_pos.y + 0.0f,block_pos.z + block_size};
+			point[2] = (vec3){block_pos.x + 0.0f,block_pos.y + block_size,block_pos.z + 0.0f};
+			point[3] = (vec3){block_pos.x + 0.0f,block_pos.y + block_size,block_pos.z + block_size};
+			point[4] = (vec3){block_pos.x + block_size,block_pos.y + 0.0f,block_pos.z + 0.0f};
+			point[5] = (vec3){block_pos.x + block_size,block_pos.y + 0.0f,block_pos.z + block_size};
+			point[6] = (vec3){block_pos.x + block_size,block_pos.y + block_size,block_pos.z + 0.0f};
+			point[7] = (vec3){block_pos.x + block_size,block_pos.y + block_size,block_pos.z + block_size};
+			for(int i = 0;i < 8;i++)
+				screen_point[i] = pointToScreen(point[i]);
+			pixel_t green = {0,255,0};
+			drawLine(screen_point[0],screen_point[1],green);
+			drawLine(screen_point[0],screen_point[2],green);
+			drawLine(screen_point[0],screen_point[4],green);
+			drawLine(screen_point[1],screen_point[3],green);
+			drawLine(screen_point[1],screen_point[5],green);
+			drawLine(screen_point[2],screen_point[3],green);
+			drawLine(screen_point[2],screen_point[6],green);
+			drawLine(screen_point[3],screen_point[7],green);
+			drawLine(screen_point[4],screen_point[5],green);
+			drawLine(screen_point[4],screen_point[6],green);
+			drawLine(screen_point[5],screen_point[7],green);
+			drawLine(screen_point[6],screen_point[7],green);
+		}
+
+		if(!tool_select){
+			if(material_array[block_type].texture){
+				int offset_x = 20 / RES_SCALE;
+				int offset_y = WND_RESOLUTION.y - 140 / RES_SCALE;
+				int size = 120 / RES_SCALE;
+				pixel_t* texture = material_array[block_type].texture;
+				for(int i = offset_x;i < offset_x + size;i++){
+					for(int j = offset_y;j < offset_y + size;j++){
+						int tx = (i - offset_x) * (texture[0].size) / size;
+						int ty = (j - offset_y) * (texture[0].size) / size;
+						vram.draw[i * (int)WND_RESOLUTION.y + j] = texture[tx * texture[0].size + ty + 1];
+					}
+				}
+			}
+		}
+
 		is_rendering = false;
 		//printf("%i\n",__rdtsc() - t);
 		int middle_pixel = WND_RESOLUTION.x * WND_RESOLUTION.y / 2 + WND_RESOLUTION.y / 2;
-		vram.draw[middle_pixel] = (PIXEL){0,255,0};
-		vram.draw[middle_pixel + 1] = (PIXEL){0,0,0};
-		vram.draw[middle_pixel - 1] = (PIXEL){0,0,0};
-		vram.draw[middle_pixel + (int)WND_RESOLUTION.y] = (PIXEL){0,0,0};
-		vram.draw[middle_pixel - (int)WND_RESOLUTION.y] = (PIXEL){0,0,0};
-		PIXEL* temp = vram.render;
+		vram.draw[middle_pixel] = (pixel_t){0,255,0};
+		vram.draw[middle_pixel + 1] = (pixel_t){0,0,0};
+		vram.draw[middle_pixel - 1] = (pixel_t){0,0,0};
+		vram.draw[middle_pixel + (int)WND_RESOLUTION.y] = (pixel_t){0,0,0};
+		vram.draw[middle_pixel - (int)WND_RESOLUTION.y] = (pixel_t){0,0,0};
+		pixel_t* temp = vram.render;
+		while(frame_ready)
+			Sleep(1);
 		vram.render = vram.draw;
 		vram.draw = temp;
-		if(frame_ready)
-			Sleep(1);
 		frame_ready = TRUE;
 	}	
 }
 
-void setVoxel(int x,int y,int z,int depth){
-	BLOCK_NODE* node = &block_node;
-	for(int i = 0;i < depth;i++){
-		int shift = depth - i - 1;
-		if(!node->block_node[z >> shift & 1][y >> shift & 1][x >> shift & 1])
-			node->block_node[z >> shift & 1][y >> shift & 1][x >> shift & 1] = MALLOC_ZERO(sizeof(BLOCK_NODE));
-		node = node->block_node[z >> shift & 1][y >> shift & 1][x >> shift & 1];
-	}
-	node->block = MALLOC_ZERO(sizeof(BLOCK));
-}
-
 void main(){
+#pragma comment(lib,"Winmm.lib")
+	timeBeginPeriod(1);
+
 	bmi.bmiHeader.biWidth  = WND_RESOLUTION.y;
 	bmi.bmiHeader.biHeight = WND_RESOLUTION.x;
+	
+	int depth = 4;
+	int m = 1 << depth;
+	for(int y = 0;y < m;y++){
+		for(int x = 0;x < m;x++){
+			setVoxel(x,y,0,depth);
+		}
+	}
+	texture[0] = loadBMP("img/default.bmp");
+	texture[1] = loadBMP("img/marble.bmp");
+	texture[2] = loadBMP("img/ice.bmp");
 
-	for(int i = 0;i < 1;i++)
-		setVoxel(7,7,7,3);
+	material_array[1].texture = texture[0];
+	material_array[2].texture = texture[1];
+	material_array[3].texture = texture[2];
 
-	printf("%i\n",block_node.block_node_s[7]->block_node_s[7]->block_node_s[7]->block);
-
-	vram.draw = MALLOC(sizeof(VRAM) * WND_RESOLUTION.x * WND_RESOLUTION.y);
-	vram.render = MALLOC(sizeof(VRAM) * WND_RESOLUTION.x * WND_RESOLUTION.y);
+	vram.draw = MALLOC(sizeof(vram_t) * WND_RESOLUTION.x * WND_RESOLUTION.y);
+	vram.render = MALLOC(sizeof(vram_t) * WND_RESOLUTION.x * WND_RESOLUTION.y);
 
 	RegisterClassA(&wndclass);
 	window = CreateWindowExA(0,"class","hello",WS_VISIBLE|WS_POPUP,0,0,WND_SIZE.x,WND_SIZE.y,0,0,wndclass.hInstance,0);
 	context = GetDC(window);
 	ShowCursor(FALSE);
-	HANDLE thread_render = CreateThread(0,0,render,0,0,0);
-	CreateThread(0,0,draw,0,0,0);
-	CreateThread(0,0,physics,0,0,0);
-	//CreateThread(0,0,lightmap,0,0,0);
+
+	CreateThread(0,0,(LPTHREAD_START_ROUTINE)draw,0,0,0);
+	HANDLE thread_render = CreateThread(0,0,(LPTHREAD_START_ROUTINE)render,0,0,0);
+	HANDLE physics_thread = CreateThread(0,0,(LPTHREAD_START_ROUTINE)physics,0,0,0);
+	SetThreadPriority(physics_thread,THREAD_PRIORITY_ABOVE_NORMAL);
 	MSG msg;
 	while(GetMessageA(&msg,window,0,0)){
 		TranslateMessage(&msg);
