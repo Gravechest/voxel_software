@@ -12,8 +12,8 @@ typedef union{
 }vec2;
 
 enum{
-	vec2_X,
-	vec2_Y
+	VEC2_X,
+	VEC2_Y
 };
 
 void vec2add(vec2* v,float a);

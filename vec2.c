@@ -3,15 +3,15 @@
 
 
 vec2 vec2subvec2R(vec2 v1,vec2 v2){
-	return (vec2){v1.x-v2.x,v1.y-v2.y};
+	return (vec2){v1.x - v2.x,v1.y - v2.y};
 }
 
 vec2 vec2addvec2R(vec2 v1,vec2 v2){
-	return (vec2){v1.x+v2.x,v1.y+v2.y};
+	return (vec2){v1.x + v2.x,v1.y + v2.y};
 }
 
 vec2 vec2mulvec2R(vec2 v1,vec2 v2){
-	return (vec2){v1.x*v2.x,v1.y*v2.y};
+	return (vec2){v1.x * v2.x,v1.y * v2.y};
 }
 
 void vec2add(vec2* v,float a){

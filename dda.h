@@ -35,7 +35,7 @@ typedef struct{
 	ivec3 step;
 	ivec3 square_pos;
 
-	int square_side;
+	unsigned int square_side;
 }ray3_t;
 
 typedef struct{

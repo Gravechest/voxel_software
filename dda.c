@@ -1,21 +1,27 @@
 #include "dda.h"
 #include "tmath.h"
+#include "source.h"
 
 ray3_t ray3Create(vec3 pos,vec3 dir){
 	ray3_t ray;
+
 	ray.square_side = 0;
 	ray.pos = pos;
 	ray.dir = dir;
 	ray.delta = vec3absR(vec3divFR(ray.dir,1.0f));
 
 	ray.step.x = ray.dir.x < 0.0f ? -1 : 1;
-	ray.side.x = tFract(ray.dir.x < 0.0f ? ray.pos.x : 1.0f - ray.pos.x) * ray.delta.x;
-
 	ray.step.y = ray.dir.y < 0.0f ? -1 : 1;
-	ray.side.y = tFract(ray.dir.y < 0.0f ? ray.pos.y : 1.0f - ray.pos.y) * ray.delta.y;
-
 	ray.step.z = ray.dir.z < 0.0f ? -1 : 1;
-	ray.side.z = tFract(ray.dir.z < 0.0f ? ray.pos.z : 1.0f - ray.pos.z) * ray.delta.z;
+
+	vec3 fract_pos;
+	fract_pos.x = tFractUnsigned(ray.pos.x);
+	fract_pos.y = tFractUnsigned(ray.pos.y);
+	fract_pos.z = tFractUnsigned(ray.pos.z);
+
+	ray.side.x = (ray.dir.x < 0.0f ? fract_pos.x : 1.0f - fract_pos.x) * ray.delta.x;
+	ray.side.y = (ray.dir.y < 0.0f ? fract_pos.y : 1.0f - fract_pos.y) * ray.delta.y;
+	ray.side.z = (ray.dir.z < 0.0f ? fract_pos.z : 1.0f - fract_pos.z) * ray.delta.z;
 
 	ray.square_pos.x = ray.pos.x;
 	ray.square_pos.y = ray.pos.y;
