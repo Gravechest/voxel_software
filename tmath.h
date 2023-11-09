@@ -13,6 +13,7 @@ float tMix(float v1,float v2,float inpol);
 float tFloorf(float p);
 float tCeilingf(float p);
 float tRnd();
+float tNoise2D(int x,int y);
 
 void tSwapf(float* f_1,float* f_2);
 

@@ -69,6 +69,17 @@ int tHash(int x){
 	return x;
 }
 
+float tNoise2D(int x,int y){
+	union p {
+		float f;
+		int u;
+	}r;
+	r.u = tHash(x) ^ tHash(y);
+	r.u &= 0x007fffff;
+	r.u |= 0x3f800000;
+	return r.f;
+}
+
 float tRnd(){
 	union p {
 		float f;

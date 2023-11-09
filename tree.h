@@ -5,6 +5,7 @@
 #include "vec3.h"
 #include "source.h"
 #include "dda.h"
+#include "fog.h"
 
 #define FIXED_PRECISION 16
 
@@ -46,12 +47,18 @@ extern block_node_t* node_root;
 extern uint block_node_c;
 
 traverse_init_t initTraverse(vec3 pos);
-node_hit_t traverseTree(ray3_t ray,uint node_ptr);
-node_hit_t traverseTreeI(ray3i_t ray,uint node_ptr);
-void setVoxel(uint x,uint y,uint z,uint depth,uint material);
+node_hit_t treeRay(ray3_t ray,uint node_ptr,vec3 ray_pos);
+node_hit_t treeRayI(ray3i_t ray,uint node_ptr);
+uint traverseTreeItt(ray3i_t ray,uint node_ptr);
+void setVoxel(uint x,uint y,uint z,uint depth,uint material,float ammount);
+void setVoxelSolid(uint x,uint y,uint z,uint depth,uint material);
 void removeVoxel(uint node_ptr);
 block_t* insideBlock(vec3 pos);
 uint getNode(int x,int y,int z,int depth);
 uint getNodeFromPos(vec3 pos,uint depth);
-beam_result_t traverseTreeBeamI(traverse_init_t init[4],uint x,uint y,uint beam_size);
 ray3i_t ray3CreateI(vec3 pos,vec3 dir);
+float rayNodeGetDistance(vec3 ray_pos,ivec3 pos,int depth,vec3 angle,int side);
+float rayGetDistance(vec3 ray_pos,vec3 ray_dir);
+block_node_t treeTraverse(vec3 pos);
+fog_t treeRayFog(ray3_t ray,uint node_ptr,vec3 ray_pos,float max_distance);
+node_hit_t treeRayOnce(ray3_t ray,uint node_ptr,vec3 ray_pos);

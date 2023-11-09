@@ -4,6 +4,11 @@
 
 #define FOG_DENSITY 0.03f
 
-vec3 calculateFogColor(vec3 pos);
+typedef struct{
+	vec3 luminance;
+	float density;
+}fog_t;
+
+fog_t calculateFogColor(vec3 pos);
 void calculateNodeLuminance(block_node_t* node,uint quality);
 void calculateNodeLuminanceTree(uint node_ptr,uint quality);

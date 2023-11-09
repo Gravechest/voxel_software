@@ -54,7 +54,7 @@ char *plain_texture_frag_source = ""
 char *VERTsource = ""
 "#version 460 core\n"
 
-"layout (location = 0) in vec2 verticles;"
+"layout (location = 0) in vec3 verticles;"
 "layout (location = 1) in vec2 textcoords;"
 "layout (location = 2) in vec3 lighting;"
 "layout (location = 3) in float distance;"
@@ -70,7 +70,7 @@ char *VERTsource = ""
 	"Lighting = lighting;"
 	"Distance = distance;"
 	"Fog_color = fog_color;"
-	"gl_Position = vec4(verticles,0.0,1.0);"
+	"gl_Position = vec4(verticles.xy,0.0,verticles.z);"
 "}";
 char *FRAGsource = ""
 "#version 460 core\n"
@@ -87,7 +87,11 @@ char *FRAGsource = ""
 "void main(){"
 	"vec2 crd = TextCoords;"
 	"FragColor = vec4(Lighting,1.0f);"
-	"FragColor *= texture(ourTexture,crd);"
+	"vec4 texture_color = texture(ourTexture,crd);"
+	"if(texture_color.a > 0.0){"
+	"discard;"
+	"}"
+	"FragColor *= texture_color;"
 	"FragColor.rgb = mix(FragColor.rgb,Fog_color,1.0f - Distance);"
 "}";
 
@@ -116,7 +120,7 @@ char *FRAGsourceUI = ""
 	"FragColor = vec4(Lighting,1.0f);"
 "}";
 
-#define RD_VSYNC false
+#define RD_VSYNC true
 
 void drawBlockOutline(triangles_t* triangles){
 	glBufferData(GL_ARRAY_BUFFER,sizeof(triangles_t) * 8,triangles,GL_DYNAMIC_DRAW);
@@ -152,15 +156,15 @@ void initGL(HDC context){
 	glCreateBuffers(1,&VBO);
 	glBindBuffer(GL_ARRAY_BUFFER,VBO);
 	glEnableVertexAttribArray(0);
-	glVertexAttribPointer(0,2,GL_FLOAT,0,11 * sizeof(float),(void*)0);
+	glVertexAttribPointer(0,3,GL_FLOAT,0,12 * sizeof(float),(void*)0);
 	glEnableVertexAttribArray(1);
-	glVertexAttribPointer(1,2,GL_FLOAT,0,11 * sizeof(float),(void*)(2 * sizeof(float)));
+	glVertexAttribPointer(1,2,GL_FLOAT,0,12 * sizeof(float),(void*)(3 * sizeof(float)));
 	glEnableVertexAttribArray(2);
-	glVertexAttribPointer(2,3,GL_FLOAT,0,11 * sizeof(float),(void*)(4 * sizeof(float)));
+	glVertexAttribPointer(2,3,GL_FLOAT,0,12 * sizeof(float),(void*)(5 * sizeof(float)));
 	glEnableVertexAttribArray(3);
-	glVertexAttribPointer(3,1,GL_FLOAT,0,11 * sizeof(float),(void*)(7 * sizeof(float)));
+	glVertexAttribPointer(3,1,GL_FLOAT,0,12 * sizeof(float),(void*)(8 * sizeof(float)));
 	glEnableVertexAttribArray(4);
-	glVertexAttribPointer(4,3,GL_FLOAT,0,11 * sizeof(float),(void*)(8 * sizeof(float)));
+	glVertexAttribPointer(4,3,GL_FLOAT,0,12 * sizeof(float),(void*)(9 * sizeof(float)));
 
 	context_is_gl = true;
 	
@@ -214,8 +218,10 @@ void initGL(HDC context){
 	
 	glGenTextures(1, &texture2);  
 	glBindTexture(GL_TEXTURE_2D, texture2);
-				  
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,1024 * TEXTURE_AMMOUNT,1024, 0, GL_RGBA, GL_UNSIGNED_BYTE,texture_atlas);
-	glGenerateMipmap(GL_TEXTURE_2D);
 
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+				  
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,1024 * TEXTURE_AMMOUNT,1024 * 2, 0, GL_RGBA, GL_UNSIGNED_BYTE,texture_atlas);
+	glGenerateMipmap(GL_TEXTURE_2D);
 }

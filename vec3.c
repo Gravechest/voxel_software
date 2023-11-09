@@ -20,6 +20,12 @@ void vec3add(vec3* v,float a){
 	v->z += a;
 }
 
+void vec3sub(vec3* v,float a){
+	v->x -= a;
+	v->y -= a;
+	v->z -= a;
+}
+
 void vec3div(vec3* v,float d){
 	v->x /= d;
 	v->y /= d;
@@ -144,4 +150,12 @@ vec3 vec3negR(vec3 v){
 
 vec3 vec3reflect(vec3 i,vec3 n){
 	return vec3subvec3R(i,vec3mulR(n,2.0f * vec3dotR(n,i)));
+}
+
+vec3 vec3refract(vec3 I,vec3 N,float eta){
+    float k = 1.0f - eta * eta * (1.0f - vec3dotR(N, I) * vec3dotR(N, I));
+    if (k < 0.0f)
+        return VEC3_ZERO;
+    else
+        return vec3subvec3R(vec3mulR(I,eta),vec3mulR(N,(vec3dotR(N, I) * eta + sqrtf(k))));
 }

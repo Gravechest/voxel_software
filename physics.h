@@ -1,5 +1,6 @@
 #pragma once
 
+#define MV_GRAVITY 0.0007f
 #define MV_JUMPHEIGHT 0.1f
 #define MV_WALKSPEED 0.0015f
 #define MV_FLYSPEED 0.1f
@@ -11,6 +12,6 @@
 #define GROUND_FRICTION 0.92f
 #define AIR_FRICTION 0.997f
 
-void physics();
+void physics(unsigned int tick_ammount);
 
 extern float physic_mouse_x;

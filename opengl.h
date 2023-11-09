@@ -17,7 +17,7 @@
 #define GL_TEXTURE6 0x84C6
 
 typedef struct{
-	vec2 pos;
+	vec3 pos;
 	vec2 texture_pos;
 	vec3 lighting;
 	float distance;

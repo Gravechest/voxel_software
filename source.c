@@ -10,13 +10,15 @@
 #include "memory.h"
 #include "physics.h"
 #include "lighting.h"
-#include "draw.h"
 #include "tree.h"
 #include "menu.h"
-#include "trace.h"
 #include "opengl.h"
 #include "world_triangles.h"
 #include "fog.h"
+#include "sound.h"
+#include "entity.h"
+#include "player.h"
+#include "draw.h"
 
 #include <gl/GL.h>
 
@@ -29,6 +31,8 @@ HANDLE thread_render;
 HANDLE lighting_thread;
 HANDLE entity_thread;
 
+vec3 music_box_pos;
+
 bool context_is_gl;
 
 int proc(HWND hwnd,UINT msg,WPARAM wParam,LPARAM lParam);
@@ -38,7 +42,7 @@ BITMAPINFO bmi = {sizeof(BITMAPINFOHEADER),0,0,1,32,BI_RGB};
 HWND window;
 HDC context;
 vram_t vram;
-camera_t camera = {.pos.z = MAP_SIZE * 0.4f,.pos.x = 3.0f,.pos.y = 3.0f};
+camera_t camera = {.pos.z = MAP_SIZE + 2.0f,.pos.x = MAP_SIZE + 0.5f,.pos.y = MAP_SIZE + 0.5f};
 float camera_exposure = 1.0f;
 
 camera_t camera_rd;
@@ -59,23 +63,158 @@ volatile char frame_ready;
 bool setting_smooth_lighting = true;
 bool setting_fly = false;
 
+bool player_gamemode;
+
 texture_t texture[16];
 
 pixel_t* texture_atlas;
 
-material_t material_array[] = {
-	{.luminance = {0.9f,0.9f,0.9f},.texture_id = 0},
-	{.luminance = {1.0f,1.0f,1.0f},.texture_id = 1},
-	{.luminance = {0.1f,0.1f,0.5f},.texture_id = 4},
-	{.luminance = {0.9f,0.9f,0.9f},.texture_id = 2},
-	{.luminance = {0.9f,0.9f,0.9f},.texture_id = 3},
-	{.luminance = {0.9f,0.9f,0.9f},.texture_id = 4},
-	{.flags = MAT_LUMINANT,.luminance = {4.0f,4.0f,4.0f}},
-	{.flags = MAT_LUMINANT,.luminance = {4.0f,1.0f,1.0f}},
-	{.flags = MAT_LUMINANT,.luminance = {1.0f,4.0f,1.0f}},
-	{.flags = MAT_LUMINANT,.luminance = {1.0f,1.0f,4.0f}},
-	{.flags = MAT_LUMINANT,.luminance = {1.0f,4.0f,4.0f}},	
+uint inventory_select = 1;
+
+bool in_console;
+
+uint border_block_table[6][4] = {
+	{0,2,4,6},
+	{1,3,5,7},
+	{0,1,4,5},
+	{2,3,6,7},
+	{0,1,2,3},
+	{4,5,6,7}
 };
+
+inventoryslot_t inventory_slot[9] = {
+	{.type = -1},
+	{.type = -1},
+	{.type = -1},
+	{.type = -1},
+	{.type = -1},
+	{.type = -1},
+	{.type = -1},
+	{.type = -1}
+};
+
+enum{
+	BLOCK_WHITE,
+	BLOCK_SANDSTONE,
+	BLOCK_SKIN,
+	BLOCK_SPAWNLIGHT
+};
+
+material_t material_array[] = {
+	{
+		.luminance = {0.9f,0.9f,0.9f},
+		.texture_pos = {0.0f,0.0f},
+		.texture_size = {0.01f,0.01f}
+	},
+	{
+		.luminance = {1.0f,1.0f,1.0f},
+		.texture_pos = {1.0f / 6.0f,0.0f},
+		.texture_size = {1.0f / 6.0f,0.5f},
+		.hardness = 1.0f,
+	},
+	{
+		.luminance = {1.0f,0.8f,0.8f},
+		.texture_pos = {1.0f / 6.0f,0.0f},
+		.texture_size = {1.0f / 6.0f,0.5f},
+		.flags = MAT_REFLECT
+	},
+	{
+		.luminance = {1.0f,0.8f,0.8f},
+		.texture_pos = {0.0f,0.0f},
+		.texture_size = {0.01f,0.01f},
+		.flags = MAT_LIQUID
+	},
+	{
+		.luminance = {9.0f,9.0f,9.0f},
+		.texture_pos = {0.0f,0.0f},
+		.texture_size = {0.0f,0.0f},
+		.flags = MAT_LUMINANT
+	},
+	{
+		.luminance = {9.0f,9.0f,9.0f},
+		.texture_pos = {0.0f,0.0f},
+		.texture_size = {0.0f,0.0f},
+		.flags = MAT_LUMINANT
+	},
+	{
+		.luminance = {3.0f,9.0f,3.0f},
+		.texture_pos = {0.0f,0.0f},
+		.texture_size = {0.0f,0.0f},
+		.flags = MAT_LUMINANT
+	},
+	{
+		.luminance = {9.0f,3.0f,3.0f},
+		.texture_pos = {0.0f,0.0f},
+		.texture_size = {0.0f,0.0f},
+		.flags = MAT_LUMINANT
+	},
+	{
+		.luminance = {3.0f,3.0f,9.0f},
+		.texture_pos = {0.0f,0.0f},
+		.texture_size = {0.0f,0.0f},
+		.flags = MAT_LUMINANT
+	},
+	{
+		.luminance = {0.9f,0.9f,0.9f},
+		.texture_pos = {0.0f,0.0f},
+		.texture_size = {0.01f,0.01f},
+		.flags = MAT_REFRACT
+	},
+	{
+		.luminance = {0.3f,0.3f,0.9f},
+		.texture_pos = {0.0f,0.0f},
+		.texture_size = {0.01f,0.01f},
+		.flags = MAT_REFRACT
+	},
+	{
+		.luminance = {0.3f,0.9f,0.3f},
+		.texture_pos = {0.0f,0.0f},
+		.texture_size = {0.01f,0.01f},
+		.flags = MAT_REFRACT
+	},
+	{
+		.luminance = {0.9f,0.3f,0.3f},
+		.texture_pos = {0.0f,0.0f},
+		.texture_size = {0.01f,0.01f},
+		.flags = MAT_REFRACT
+	},
+};
+
+float sdCube(vec3 point,vec3 cube,float cube_size){
+	vec3 distance;
+	distance.x = tMaxf(cube.x - cube_size * 0.5f - point.x,-(cube.x + cube_size * 0.5f - point.x));
+	distance.y = tMaxf(cube.y - cube_size * 0.5f - point.y,-(cube.y + cube_size * 0.5f - point.y));
+	distance.z = tMaxf(cube.z - cube_size * 0.5f - point.z,-(cube.z + cube_size * 0.5f - point.z));
+	distance.x = tMaxf(distance.x,0.0f);
+	distance.y = tMaxf(distance.y,0.0f);
+	distance.z = tMaxf(distance.z,0.0f);
+	return sqrtf(distance.x * distance.x + distance.y * distance.y + distance.z * distance.z);
+}
+
+void spawnLuminantParticle(vec3 pos,vec3 dir,vec3 luminance,uint fuse){
+	entity_t* entity = getNewEntity();
+	entity->pos = pos;
+	entity->dir = dir;
+	entity->color = luminance;
+	entity->type = 1;
+	entity->fuse = fuse;
+}
+
+void spawnEntity(vec3 pos,vec3 dir,uint type){
+	entity_t* entity = getNewEntity();
+	entity->pos = pos;
+	entity->dir = dir;
+	entity->type = type;
+	entity->fuse = 0;
+	switch(type){
+	case 0:
+		entity->color = (vec3){0.5f,0.5f,0.5f};
+		break;
+	case 1:
+		entity->color = TRND1 < 0.5f ? (vec3){0.2f,1.0f,0.2f} : (vec3){0.2f,0.2f,1.0f};
+		break;
+	}
+}
 
 texture_t loadBMP(char* name){
 	HANDLE h = CreateFileA(name,GENERIC_READ,0,0,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,0);
@@ -133,15 +272,6 @@ texture_t loadBMP(char* name){
 	return texture;
 }
 
-void render(){
-	for(;;){
-		StretchDIBits(context,0,0,WND_SIZE.x,WND_SIZE.y,0,0,WND_RESOLUTION.y,WND_RESOLUTION.x,vram.render,&bmi,0,SRCCOPY);
-		while(!frame_ready)
-			Sleep(1);
-		frame_ready = false;
-	}
-}
-
 vec2 sampleCube(vec3 v,uint* faceIndex){
 	float ma;
 	vec2 uv;
@@ -188,22 +318,22 @@ vec3 getRayAngle(uint x,uint y){
 	return ray_ang;
 }
 
-vec3 pointTransform(vec3 point){
+vec3 pointToScreenRenderer(vec3 point){
 	vec3 screen_point;
 	vec3 pos = vec3subvec3R(point,camera_rd.pos);
 	float temp;
-	temp  = pos.y * camera.tri.x - pos.x * camera.tri.y;
-	pos.x = pos.y * camera.tri.y + pos.x * camera.tri.x;
+	temp  = pos.y * camera_rd.tri.x - pos.x * camera_rd.tri.y;
+	pos.x = pos.y * camera_rd.tri.y + pos.x * camera_rd.tri.x;
 	pos.y = temp;
-	temp  = pos.z * camera.tri.z - pos.x * camera.tri.w;
-	pos.x = pos.z * camera.tri.w + pos.x * camera.tri.z;
+	temp  = pos.z * camera_rd.tri.z - pos.x * camera_rd.tri.w;
+	pos.x = pos.z * camera_rd.tri.w + pos.x * camera_rd.tri.z;
 	pos.z = temp;
 	
 	if(pos.x <= 0.0f)
 		return (vec3){0.0f,0.0f,0.0f};
 	
-	screen_point.y = FOV.x * pos.z / pos.x + WND_RESOLUTION.x / 2.0f;
-	screen_point.x = FOV.y * pos.y / pos.x + WND_RESOLUTION.y / 2.0f;
+	screen_point.x = pos.z * (FOV.x / WND_RESOLUTION.x * 2.0f);
+	screen_point.y = pos.y * (FOV.y / WND_RESOLUTION.y * 2.0f);
 	screen_point.z = pos.x;
 	return screen_point;
 }
@@ -261,7 +391,7 @@ float rayIntersectPlane(vec3 pos,vec3 dir,vec3 plane){
 
 int block_type;
 
-void addSubVoxel(int vx,int vy,int vz,int x,int y,int z,int depth,int block_id){
+void addSubVoxel(int vx,int vy,int vz,int x,int y,int z,int depth,int remove_depth,int block_id){
 	if(--depth == -1)
 		return;
 	bool offset_x = x >> depth & 1;
@@ -275,10 +405,10 @@ void addSubVoxel(int vx,int vy,int vz,int x,int y,int z,int depth,int block_id){
 			int pos_x = vx + offset_x << 1;
 			int pos_y = vy + offset_y << 1;
 			int pos_z = vz + offset_z << 1;
-			addSubVoxel(pos_x,pos_y,pos_z,x,y,z,depth,block_id);
+			addSubVoxel(pos_x,pos_y,pos_z,x,y,z,depth,remove_depth,block_id);
 			continue;
 		}
-		setVoxel(vx + lx,vy + ly,vz + lz,edit_depth - depth,block_id);
+		setVoxelSolid(vx + lx,vy + ly,vz + lz,remove_depth - depth,block_id);
 	}
 }
 
@@ -294,10 +424,10 @@ typedef struct hold_structure{
 }hold_structure_t;
 
 hold_structure_t hold_structure;
-
+ 
 void holdStructureSet(hold_structure_t* hold,ivec3 pos,uint depth){
 	if(hold->is_filled){
-		setVoxel(pos.x,pos.y,pos.z,depth,hold->block_id);
+		setVoxelSolid(pos.x,pos.y,pos.z,depth,hold->block_id);
 		return;
 	}
 	pos.x <<= 1;
@@ -313,10 +443,82 @@ void holdStructureSet(hold_structure_t* hold,ivec3 pos,uint depth){
 	}
 }
 
+void rayRemoveVoxel(vec3 ray_pos,vec3 direction,int remove_depth){
+	traverse_init_t init = initTraverse(ray_pos);
+	node_hit_t result = treeRay(ray3Create(init.pos,direction),init.node,ray_pos);
+	if(!result.node)
+		return;
+	block_node_t node = node_root[result.node];
+	uint block_depth = node.depth;
+	ivec3 block_pos_i = node.pos;
+	
+	block_t* block = node.block;
+	uint material = block->material;
+
+	removeVoxel(result.node);
+
+	float block_size = (float)MAP_SIZE / (1 << block_depth) * 2.0f;
+
+	if(block_depth >= remove_depth)
+		return;
+
+	int depht_difference = remove_depth - block_depth;
+	vec3 block_pos = {
+		block_pos_i.x << depht_difference,
+		block_pos_i.y << depht_difference,
+		block_pos_i.z << depht_difference
+	};
+	int edit_size = 1 << remove_depth;
+	vec3 pos = {
+		block_pos_i.x * block_size,
+		block_pos_i.y * block_size,
+		block_pos_i.z * block_size
+	};
+
+	plane_t plane = getPlane(pos,direction,result.side,block_size);
+	vec3 plane_pos = vec3subvec3R(plane.pos,ray_pos);
+	float dst = rayIntersectPlane(plane_pos,direction,plane.normal);
+	vec3 hit_pos = vec3addvec3R(camera.pos,vec3mulR(direction,dst));
+
+	vec2 uv = {
+		(hit_pos.a[plane.x] - plane.pos.a[plane.x]) / block_size,
+		(hit_pos.a[plane.y] - plane.pos.a[plane.y]) / block_size
+	};
+	uv.x *= 1 << depht_difference;
+	uv.y *= 1 << depht_difference;
+	block_pos.a[result.side] += ((direction.a[result.side] < 0.0f) << depht_difference) - (direction.a[result.side] < 0.0f);
+	block_pos.a[plane.x] += tFloorf(uv.x);
+	block_pos.a[plane.y] += tFloorf(uv.y);
+	int x,y,z;
+	int depht_difference_size = 1 << depht_difference;
+	x = (int)block_pos.x & depht_difference_size - 1;
+	y = (int)block_pos.y & depht_difference_size - 1;
+	z = (int)block_pos.z & depht_difference_size - 1;
+
+	addSubVoxel(block_pos_i.x << 1,block_pos_i.y << 1,block_pos_i.z << 1,x,y,z,depht_difference,remove_depth,material);
+}
+
+void playerShoot(){
+	for(int i = 0;i < 12;i++){
+		vec2 rnd_dir = (vec2){TRND1 - 0.5f,TRND1 - 0.5f};
+		vec3mul(&rnd_dir,0.1f);
+		for(int i = 0;i < 10;i++){
+			vec3 dir = getLookAngle(vec2addvec2R(camera_rd.dir,rnd_dir));
+			rayRemoveVoxel(camera_rd.pos,dir,LM_MAXDEPTH + 4);
+		}
+	}
+}
+	
 void playerAddBlock(){
+	if(player_gamemode == GAMEMODE_SURVIVAL){
+		uint cost = 1 << tMax((12 - edit_depth) * 3,0);
+		if(cost > inventory_slot[inventory_select].ammount)
+			return;
+		inventory_slot[inventory_select].ammount -= cost;
+	}
 	vec3 dir = getLookAngle(camera.dir);
 	traverse_init_t init = initTraverse(camera.pos);
-	node_hit_t result = traverseTree(ray3Create(init.pos,dir),init.node);
+	node_hit_t result = treeRay(ray3Create(init.pos,dir),init.node,camera.pos);
 	if(!result.node)
 		return;
 	block_node_t node = node_root[result.node];
@@ -362,243 +564,97 @@ void playerAddBlock(){
 		block_pos.a[plane.y] += tFloorf(uv.y);
 	}
 	if(!tool_select){
-		setVoxel(block_pos.x,block_pos.y,block_pos.z,edit_depth,block_type);
+		if(player_gamemode == GAMEMODE_SURVIVAL){
+			setVoxelSolid(block_pos.x,block_pos.y,block_pos.z,edit_depth,inventory_slot[inventory_select].type);
+			return;
+		}
+		if(material_array[block_type].flags & MAT_LIQUID){
+			setVoxel(block_pos.x,block_pos.y,block_pos.z,edit_depth,block_type,0.8f);
+			return;
+		}
+		setVoxelSolid(block_pos.x,block_pos.y,block_pos.z,edit_depth,block_type);
 		return;
 	}
 	holdStructureSet(&hold_structure,(ivec3){block_pos.x,block_pos.y,block_pos.z},edit_depth);
 }
 
-void playerRemoveBlock(){
-	vec3 dir = getLookAngle(camera.dir);
-	traverse_init_t init = initTraverse(camera.pos);
-	node_hit_t result = traverseTree(ray3Create(init.pos,dir),init.node);
-	if(!result.node)
-		return;
-	block_node_t node = node_root[result.node];
-	uint block_depth = node.depth;
-	ivec3 block_pos_i = node.pos;
-	
-	block_t* block = node.block;
-	uint material = block->material;
-
-	removeVoxel(result.node);
-
-	float block_size = (float)MAP_SIZE / (1 << block_depth) * 2.0f;
-
-	if(block_depth >= edit_depth){
-		vec3 pos = {block_pos_i.x,block_pos_i.y,block_pos_i.z};
-		vec3add(&pos,0.5f);
-		vec3mul(&pos,block_size);
-		return;
-	}
-
-	int depht_difference = edit_depth - block_depth;
-	vec3 block_pos = {
-		block_pos_i.x << depht_difference,
-		block_pos_i.y << depht_difference,
-		block_pos_i.z << depht_difference
-	};
-	int edit_size = 1 << edit_depth;
-	vec3 pos = {
-		block_pos_i.x * block_size,
-		block_pos_i.y * block_size,
-		block_pos_i.z * block_size
-	};
-
-	plane_t plane = getPlane(pos,dir,result.side,block_size);
-	vec3 plane_pos = vec3subvec3R(plane.pos,camera.pos);
-	float dst = rayIntersectPlane(plane_pos,dir,plane.normal);
-	vec3 hit_pos = vec3addvec3R(camera.pos,vec3mulR(dir,dst));
-
-	vec2 uv = {
-		(hit_pos.a[plane.x] - plane.pos.a[plane.x]) / block_size,
-		(hit_pos.a[plane.y] - plane.pos.a[plane.y]) / block_size
-	};
-	uv.x *= 1 << depht_difference;
-	uv.y *= 1 << depht_difference;
-	block_pos.a[result.side] += ((dir.a[result.side] < 0.0f) << depht_difference) - (dir.a[result.side] < 0.0f);
-	block_pos.a[plane.x] += tFloorf(uv.x);
-	block_pos.a[plane.y] += tFloorf(uv.y);
-	int x,y,z;
-	int depht_difference_size = 1 << depht_difference;
-	x = (int)block_pos.x & depht_difference_size - 1;
-	y = (int)block_pos.y & depht_difference_size - 1;
-	z = (int)block_pos.z & depht_difference_size - 1;
-
-	addSubVoxel(block_pos_i.x << 1,block_pos_i.y << 1,block_pos_i.z << 1,x,y,z,depht_difference,material);
+float rayIntersectSphere(vec3 ray_pos,vec3 sphere_pos,vec3 ray_dir,float radius){
+    vec3 rel_pos = vec3subvec3R(ray_pos,sphere_pos);
+	float a = vec3dotR(ray_dir,ray_dir);
+	float b = 2.0f * vec3dotR(rel_pos,ray_dir);
+	float c = vec3dotR(rel_pos,rel_pos) - radius * radius;
+	float h = b * b - 4.0f * a * c;
+    if(h < 0.0f)
+		return -1.0f;
+	return (-b - sqrtf(h)) / (2.0f * a);
 }
 
-void updateLightMap(uint node_ptr,vec3 pos,uint depth,float radius){
-	static uint square;
-	static uint square_add;
-	square += (tHash(square) & 1) + 1;
-	if(square % 64 == 0)
-		calculateNodeLuminance(&node_root[node_ptr],32);
+void spawnNumberParticle(vec3 pos,vec3 direction,uint number){
+	vec2 dir = {direction.x,direction.y};
+	dir = vec2normalizeR(dir);
+	char str[8];
+	if(!number)
+		return;
+	uint length = 0;
+	for(uint i = number;i;i /= 10)
+		length++;
+	pos.x += dir.x * length * 0.05f;
+	pos.y += dir.y * length * 0.05f;
+	for(int i = 0;i < length;i++){
+		char c = number % 10 + 0x30 - 0x21;
+		int x = 9 - c / 10;
+		int y = c % 10;
 
-	block_node_t node = node_root[node_ptr];
-	float block_size = (float)((1 << 20) >> depth) * MAP_SIZE_INV * 0.5f;
-	if(!node.block){
-		for(int i = 0;i < 8;i++){
-			if(!node.child_s[i])
-				continue;
-			vec3 pos_2 = {
-				node_root[node.child_s[i]].pos.x,
-				node_root[node.child_s[i]].pos.y,
-				node_root[node.child_s[i]].pos.z
-			};
-			vec3add(&pos_2,0.5f);
-			vec3mul(&pos_2,block_size);
-			float distance = vec3distance(pos,pos_2);
-			if(block_size + radius > distance)
-				updateLightMap(node.child_s[i],pos,depth + 1,radius);
+		float t_y = (1.0f / (2048)) * (1024 + x * 8);
+		float t_x = (1.0f / (2048 * 3)) * y * 8;
+		entity_t* entity = getNewEntity();
+		entity->type = 1;
+		entity->pos = pos;
+		entity->dir = (vec3){0.0f,0.0f,0.01f};
+		entity->size = 0.1f;
+		entity->health = 300;
+		entity->texture_pos = (vec2){t_x,t_y};
+		entity->texture_size = (vec2){(1.0f / (2048 * 3)) * 8,(1.0f / (2048)) * 8};
+		entity->color = (vec3){1.0f,0.2f,0.2f};
+		number /= 10;
+		pos.x -= dir.x * 0.1f;
+		pos.y -= dir.y * 0.1f;
+	}
+}
+
+void clickLeft(){
+	if(player_gamemode == GAMEMODE_SURVIVAL){
+		if(inventory_slot[inventory_select].type == -1){
+			if(player_attack_state)
+				return;
+			player_attack_state = PLAYER_FIST_DURATION;
+			return;
 		}
+		playerAddBlock();
 		return;
 	}
-	block_t* block = node.block;
-	material_t material = material_array[block->material];
-	if(material.flags & MAT_LUMINANT)
-		return;
-	float block_size_2 = (float)((1 << 20) >> depth) * MAP_SIZE_INV;
-	for(int side = 0;side < 6;side++){
-		vec3* lightmap = block->side[side].luminance_p;
-		if(!lightmap)
-			continue;
-		vec3 lm_pos = {node.pos.x,node.pos.y,node.pos.z};
+	switch(tool_select){
+	case 2:  playerShoot(); break;
+	default: playerAddBlock();
+	}
+}
 
-		vec3add(&lm_pos,0.5f);
-		lm_pos.a[side >> 1] -= 0.501f - (float)(side & 1) * 1.002f;
+float block_break_progress;
+uint block_break_ptr;
 
-		int v_x = (int[]){VEC3_Y,VEC3_X,VEC3_X}[side >> 1];
-		int v_y = (int[]){VEC3_Z,VEC3_Z,VEC3_Y}[side >> 1];
-
-		uint size = GETLIGHTMAPSIZE(depth);
-
-		lm_pos.a[v_x] -= 0.5f - 0.5f / size;
-		lm_pos.a[v_y] -= 0.5f - 0.5f / size;
-
-		for(int sub_x = 0;sub_x < tMax(size / 8,1);sub_x++){
-			for(int sub_y = 0;sub_y < tMax(size / 8,1);sub_y++){
-				uint sized_square = square % (8 * 8);
-				square += (tHash(square) & 1) + 1;
-
-				uint x = sized_square / 8 + 1 + sub_x * 8;
-				uint y = sized_square % 8 + 1 + sub_y * 8;
-
-				if(x > size || y > size)
-					continue;
-
-				vec3 lm_pos_b = lm_pos;
-
-				lm_pos_b.a[v_x] += 1.0f / size * (x - 1);
-				lm_pos_b.a[v_y] += 1.0f / size * (y - 1);
-
-				lm_pos_b = vec3divR(lm_pos_b,(float)(1 << depth) * 0.5f);
-				vec3mul(&lm_pos_b,MAP_SIZE);
-				uint lightmap_location = x * (size + 2) + y;
-				vec3 pre = lightmap[lightmap_location];
-				setLightMap(&lightmap[lightmap_location],lm_pos_b,side,depth,LM_QUALITY);
-				vec3mulvec3(&lightmap[lightmap_location],material.luminance);
-				
-				if(x == 1)
-					lightmap[y] = lightmapDownX(node,side,0,y - 1,size);
-				if(y == 1)
-					lightmap[x * (size + 2)] = lightmapDownY(node,side,x - 1,0,size);
-				if(x == size)
-					lightmap[(size + 1) * (size + 2) + y] = lightmapUpX(node,side,x - 1,y - 1,size);
-				if(y == size)
-					lightmap[x * (size + 2) + (size + 1)] = lightmapUpY(node,side,x - 1,y - 1,size);
-				
-				if(x == 1 && y == 1)
-					lightmap[0] = vec3avgvec3R(lightmap[1],lightmap[size + 2]);
-				if(x == 1 && y == size)
-					lightmap[size + 1] = vec3avgvec3R(lightmap[size],lightmap[size + 2 + size + 1]);
-				if(x == size && y == 1)
-					lightmap[(size + 1) * (size + 2)] = vec3avgvec3R(lightmap[(size + 1) * (size + 2) + 1],lightmap[(size + 1) * (size + 1)]);
-				if(x == size && y == size)
-					lightmap[(size + 2) * (size + 2) - 1] = vec3avgvec3R(lightmap[(size + 2) * (size + 2) - 2],lightmap[(size + 2) * (size + 1) - 1]);
-				
-				vec3 post = lightmap[lightmap_location];
-				if(!post.r && !post.g && !post.b){
-					vec3 avg_color = VEC3_ZERO;
-					uint count = 0;
-					for(int i = 0;i < 4;i++){
-						int dx = (int[]){0,0,-1,1}[i];
-						int dy = (int[]){-1,1,0,0}[i];
-						vec3 neighbour = lightmap[lightmap_location + dx * size + dy];
-						bool red   = neighbour.r <= 0.0f;
-						bool green = neighbour.g <= 0.0f;
-						bool blue  = neighbour.b <= 0.0f;
-						if(red || green || blue)
-							continue;
-						count++;
-						vec3addvec3(&avg_color,neighbour);
-					}
-					if(!count)
-						continue;
-					lightmap[lightmap_location] = vec3mulR(avg_color,0.95f / count);
-					continue;
-				}
-				if(tAbsf(pre.r - post.r) < 0.02f && tAbsf(pre.g - post.g) < 0.02f && tAbsf(pre.b - post.b) < 0.02f)
-					continue;
-				
-				for(int x = sub_x * 8 + 1;x < sub_x * 8 + tMin(size,8) + 1;x++){
-					for(int y = sub_y * 8 + 1;y < sub_y * 8 + tMin(size,8) + 1;y++){
-						vec3 pos = {node.pos.x,node.pos.y,node.pos.z};
-						uint location = x * (size + 2) + y;
-						vec3 pre = lightmap[location];
-						setLightSideBigSingle(&lightmap[location],pos,side,depth,x - 1,y - 1,LM_QUALITY);
-						vec3mulvec3(&lightmap[location],material.luminance);
-						if(!lightmap[location].r && !lightmap[location].g && !lightmap[location].b)
-							lightmap[location] = pre;
-					}
-				}
-				setEdgeLightSide(node,side);
-			}
-		}
+void playerRemoveBlock(){
+	vec3 dir = getLookAngle(camera.dir);
+	switch(player_gamemode){
+	case GAMEMODE_CREATIVE:
+		rayRemoveVoxel(camera_rd.pos,dir,edit_depth);
+		break;
+	case GAMEMODE_SURVIVAL:
+		break;
 	}
 }
 
 static bool r_click;
 static bool l_click;
-
-void lighting(){
-	static uint i;
-	if(i % 32 == 0)
-		updateLightMap(0,camera.pos,0,32.0f);
-	else if(i % 8 == 0)
-		updateLightMap(0,camera.pos,0,16.0f);
-	else
-		updateLightMap(0,camera.pos,0,8.0f);
-	while(light_new_stack_ptr){
-		light_new_stack_t stack = light_new_stack[--light_new_stack_ptr];
-		if(!stack.node)
-			continue;
-		uint size = GETLIGHTMAPSIZE(stack.node->depth);
-		block_t* block = stack.node->block;
-		if(!block)
-			continue;
-		uint side = stack.side;
-		ivec3 pos_i = stack.node->pos;
-		vec3 pos = {pos_i.x,pos_i.y,pos_i.z};
-		vec3* lightmap = block->side[side].luminance_p;
-		if(!lightmap)
-			continue;
-		for(int x = 1;x < size + 1;x+=2){
-			for(int y = 1;y < size + 1;y+=2){
-				setLightSideBigSingle(&lightmap[x * (size + 2) + y],pos,side,stack.node->depth,x - 1,y - 1,LM_SIZE);
-				vec3mulvec3(&lightmap[x * (size + 2) + y],material_array[block->material].luminance);
-				if(size == 1)
-					continue;
-				lightmap[x * (size + 2) + y + 1] = lightmap[x * (size + 2) + y];
-				lightmap[x * (size + 2) + y + (size + 2)] = lightmap[x * (size + 2) + y];
-				lightmap[x * (size + 2) + y + (size + 2) + 1] = lightmap[x * (size + 2) + y];
-			}
-		}
-		setEdgeLightSide(*stack.node,side);
-	}
-	i++;
-	lighting_thread_done = true;
-}
 
 void fillHoldStructure(hold_structure_t* hold,uint node_ptr){
 	block_node_t node = node_root[node_ptr];
@@ -626,10 +682,63 @@ void holdStructureFree(hold_structure_t* hold){
 	MFREE(hold);
 }
 
+int console_cursor;
+#define CONSOLE_BUFFER_SIZE 40
+char console_buffer[40];
+
+void executeCommand(){
+	if(!strcmp(console_buffer,"GAMEMODE")){
+		player_gamemode ^= true;
+	}
+	if(!strcmp(console_buffer,"O2")){
+		block_node_t node = treeTraverse(camera_rd.pos);
+		if(node.air){
+			node.air->o2 += 0.1f;
+		}
+	}
+	if(!strcmp(console_buffer,"QUIT")){
+		ExitProcess(0);
+	}
+	if(!strcmp(console_buffer,"FLY")){
+		setting_fly ^= true;
+	}
+	memset(console_buffer,0,CONSOLE_BUFFER_SIZE);
+	console_cursor = 0;
+}
+
 int proc(HWND hwnd,UINT msg,WPARAM wParam,LPARAM lParam){
 	switch(msg){
 	case WM_KEYDOWN:
+		if(in_console){
+			if(wParam >= '0' && wParam <= '9')
+				console_buffer[console_cursor++] = wParam;
+			else if(wParam >= 'A' && wParam <= 'Z')
+				console_buffer[console_cursor++] = wParam;
+			else{
+				switch(wParam){
+				case VK_F3: in_console ^= true; break;
+				case VK_RETURN: executeCommand(); break;
+				case VK_BACK: 
+					if(!console_cursor)
+						break;
+					console_buffer[--console_cursor] = 0; 
+					break;
+				}
+			}
+			break;
+		}
 		switch(wParam){
+		case VK_F3:
+			in_console ^= true;
+			break;
+		case '1': inventory_select = 2; break;
+		case '2': inventory_select = 3; break;
+		case '3': inventory_select = 4; break;
+		case '4': inventory_select = 5; break;
+		case '5': inventory_select = 6; break;
+		case '6': inventory_select = 7; break;
+		case '7': inventory_select = 8; break;
+		case 'Q': inventory_select = 1; break;
 		case VK_ESCAPE:
 			menu_select ^= 1;
 			ShowCursor(menu_select);
@@ -638,7 +747,7 @@ int proc(HWND hwnd,UINT msg,WPARAM wParam,LPARAM lParam){
 			SetCursorPos(WND_SIZE.x / 2,WND_SIZE.y / 2);
 			break;
 		case VK_F5:
-			calculateNodeLuminanceTree(0,32);
+			spawnEntity(camera_rd.pos,vec3mulR(getLookAngle(camera_rd.dir),0.04f),0);
 			break;
 		case VK_F8:
 			test_bool = 0;
@@ -647,7 +756,9 @@ int proc(HWND hwnd,UINT msg,WPARAM wParam,LPARAM lParam){
 			test_bool = 1;
 			break;
 		case VK_UP:
-			tool_select ^= true;
+			tool_select += true;
+			if(tool_select == 3)
+				tool_select = 0;
 			break;
 		case VK_DOWN:
 			break;
@@ -672,7 +783,7 @@ int proc(HWND hwnd,UINT msg,WPARAM wParam,LPARAM lParam){
 	case WM_MBUTTONDOWN:
 		vec3 dir = getLookAngle(camera.dir);
 		traverse_init_t init = initTraverse(camera.pos);
-		node_hit_t result = traverseTree(ray3Create(init.pos,dir),init.node);
+		node_hit_t result = treeRay(ray3Create(init.pos,dir),init.node,camera.pos);
 		if(!result.node)
 			break;
 		if(!(GetKeyState(VK_CONTROL) & 0x80)){
@@ -738,61 +849,6 @@ int proc(HWND hwnd,UINT msg,WPARAM wParam,LPARAM lParam){
 	return DefWindowProcA(hwnd,msg,wParam,lParam);
 }
 
-vec3 getReflectLuminance(vec3 pos,vec3 dir){
-	traverse_init_t init = initTraverse(pos);
-	node_hit_t reflect = traverseTree(ray3Create(init.pos,dir),init.node);
-	block_node_t* node = node_root;
-
-	if(!reflect.node){
-		int side;
-		vec2 uv = sampleCube(dir,&side);
-		if(side == 1 && uv.x > 0.6f && uv.x < 0.8f && uv.y > 0.6f && uv.y < 0.8f)
-			return LUMINANCE_SUN;
-		return LUMINANCE_SKY;
-	}
-
-	block_t* block = node[reflect.node].block;
-	uint block_depth = node[reflect.node].depth;
-	material_t material = material_array[block->material];
-	if(material.flags & MAT_LUMINANT)
-		return material.luminance;
-	vec3 block_pos = {node[reflect.node].pos.x,node[reflect.node].pos.y,node[reflect.node].pos.z};
-	float block_size = (float)MAP_SIZE / (1 << block_depth) * 2.0f;
-	block_pos.x *= block_size;
-	block_pos.y *= block_size;
-	block_pos.z *= block_size;
-	plane_t plane_r = getPlane(block_pos,dir,reflect.side,block_size);
-	vec3 plane_pos_r = vec3subvec3R(plane_r.pos,pos);
-	float dst = rayIntersectPlane(plane_pos_r,dir,plane_r.normal);
-	vec3addvec3(&pos,vec3mulR(dir,dst));
-	vec2 uv_r = {
-		(pos.a[plane_r.x] - plane_r.pos.a[plane_r.x]) / block_size,
-		(pos.a[plane_r.y] - plane_r.pos.a[plane_r.y]) / block_size
-	};
-	uv_r.x = tMaxf(tMinf(uv_r.x,block_size),0.0f);
-	uv_r.y = tMaxf(tMinf(uv_r.y,block_size),0.0f);
-	int side_r = reflect.side * 2 + (dir.a[reflect.side] < 0.0f);
-				
-	vec3 luminance_r = getLuminance(block->side[side_r],uv_r,block_depth);
-	if(material.texture.data){
-		vec2 texture_uv = {
-			pos.a[plane_r.x] / block_size,
-			pos.a[plane_r.y] / block_size
-		};
-		texture_uv.x = tMaxf(texture_uv.x,0.0f);
-		texture_uv.y = tMaxf(texture_uv.y,0.0f);
-		float scale = TEXTURE_SCALE / material.texture.size / (8 << block_depth);
-		float texture_x = texture_uv.x * scale;
-		float texture_y = texture_uv.y * scale;
-		uint x = tFractUnsigned(texture_x) * material.texture.size;
-		uint y = tFractUnsigned(texture_y) * material.texture.size;
-		uint location = x * material.texture.size + y;
-		pixel_t text = material.texture.data[location];
-		vec3mulvec3(&luminance_r,(vec3){text.r * 0.00392f,text.b * 0.00392f,text.g * 0.00392f});
-	}
-	return luminance_r;
-}
-
 vec3 getLuminance(block_side_t side,vec2 uv,uint depth){
 	if(!side.luminance_p)
 		return VEC3_ZERO;
@@ -819,27 +875,7 @@ vec3 getLuminance(block_side_t side,vec2 uv,uint depth){
 	return vec3mixR(mix_1,mix_2,fract_pos.y);
 }
 
-#define BEAM_SIZE (1 << 4)
-
 volatile uint draw_pool;
-
-void draw_1(int p){
-	vec3 camera_pos = camera.pos;
-	traverse_init_t init_test = initTraverse(camera_pos);
-	while(draw_pool < 16){
-		uint piece = draw_pool++;
-		uint x = piece / 4;
-		uint y = piece % 4;
-		uint piece_size_x = WND_RESOLUTION.x / 4;
-		uint piece_size_y = WND_RESOLUTION.y / 4;
-		for(int d_x = x * piece_size_x;d_x < x * piece_size_x + piece_size_x;d_x += BEAM_SIZE){
-			for(int d_y = y * piece_size_y;d_y < y * piece_size_y + piece_size_y;d_y += BEAM_SIZE){
-				beamTrace16(init_test,camera_pos,d_x,d_y,p);
-			}
-		}
-	}
-	return;
-}
 
 void drawBresenhamLine(int x1,int y1,int x2,int y2,pixel_t color){
     int dx = tAbs(x2 - x1);
@@ -850,10 +886,7 @@ void drawBresenhamLine(int x1,int y1,int x2,int y2,pixel_t color){
     int err = dx - dy;
 
     for(;;){
-        // Plot the current point (x1, y1)
 		vram.draw[x1 * (int)WND_RESOLUTION.y + y1] = color;
-
-        // If the current point is the end point, exit the loop
         if (x1 == x2 && y1 == y2)
             break;
 
@@ -971,24 +1004,12 @@ void drawLine(vec2 pos_1,vec2 pos_2,pixel_t color){
 		pos_2 = temp;
 	}
 	drawBresenhamLine(pos_1.x,pos_1.y,pos_2.x,pos_2.y,color);
-	/*
-	vec2 dir = vec2normalizeR(vec2subvec2R(pos_2,pos_1));
-	ray2_t ray = ray2Create(pos_1,dir);
-	while(ray.square_pos.x != (int)pos_2.x && ray.square_pos.y != (int)pos_2.y){
-		vram.draw[ray.square_pos.x * (int)WND_RESOLUTION.y + ray.square_pos.y] = color;
-		ray2Itterate(&ray);
-		bool bound_x = ray.square_pos.x < 0 || ray.square_pos.x >= WND_RESOLUTION.x;
-		bool bound_y = ray.square_pos.y < 0 || ray.square_pos.y >= WND_RESOLUTION.y;
-		if(bound_x || bound_y)
-			break;
-	}
-	*/
 }
 
 void generateBlockOutline(){
 	vec3 look_direction = getLookAngle(camera.dir);
 	traverse_init_t init = initTraverse(camera_rd.pos);
-	node_hit_t result = traverseTree(ray3Create(init.pos,look_direction),init.node);
+	node_hit_t result = treeRay(ray3Create(init.pos,look_direction),init.node,camera_rd.pos);
 	if(!result.node)
 		return;
 	block_node_t node = node_root[result.node];
@@ -1054,13 +1075,25 @@ typedef struct{
 	float padding[7];
 }triangle_plain_texture;
 
+void guiRectangle(vec2 pos,vec2 size,vec3 color){
+	triangles[triangle_count + 0] = (triangles_t){pos.x,pos.y,1.0f,0.0f,0.0f,color.r,color.g,color.b,1.0f};
+	triangles[triangle_count + 1] = (triangles_t){pos.x + size.x,pos.y,1.0f,0.01f,0.0f,color.r,color.g,color.b,1.0f};
+	triangles[triangle_count + 2] = (triangles_t){pos.x + size.x,pos.y + size.y,1.0f,0.01f,0.01f,color.r,color.g,color.b,1.0f};
+	triangles[triangle_count + 3] = (triangles_t){pos.x,pos.y,1.0f,0.0f,0.0f,color.r,color.g,color.b,1.0f};
+	triangles[triangle_count + 4] = (triangles_t){pos.x,pos.y + size.y,1.0f,0.0f,0.01f,color.r,color.g,color.b,1.0f};
+	triangles[triangle_count + 5] = (triangles_t){pos.x + size.x,pos.y + size.y,1.0f,0.01f,0.01f,color.r,color.g,color.b,1.0f};
+	triangle_count += 6;
+}
+
 void castVisibilityRays(){
 	traverse_init_t init = initTraverse(camera_rd.pos);
-	static uint counter = 0;
-	for(int x = counter / 64;x < WND_RESOLUTION.x;x += 64){
-		for(int y = counter % 64;y < WND_RESOLUTION.y;y += 64){
+	static uint counter;
+	for(int x = counter / 16;x < WND_RESOLUTION.x;x += 16){
+		for(int y = counter % 16;y < WND_RESOLUTION.y;y += 16){
 			vec3 ray_angle = getRayAngle(x,y);
-			node_hit_t hit = traverseTree(ray3Create(init.pos,ray_angle),init.node);
+			node_hit_t hit = treeRay(ray3Create(init.pos,ray_angle),init.node,camera_rd.pos);
+			if(!hit.node)
+				continue;
 			block_node_t* node = &node_root[hit.node];
 			uint side = hit.side * 2 + (ray_angle.a[hit.side] < 0.0f);
 			if(!node->block)
@@ -1069,8 +1102,16 @@ void castVisibilityRays(){
 				lightNewStackPut(node,node->block,side);
 		}
 	}
+	/*
+	for(int x = 0;x < WND_RESOLUTION.x;x += 16){
+		for(int y = 0;y < WND_RESOLUTION.y;y += 16){
+			uint c = traverseTreeItt(ray3CreateI(init.pos,getRayAngle(x,y)),init.node);
+			guiRectangle((vec2){y / 16 * 0.01f - 1.0f,x / 16 * 0.01f - 1.0f},(vec2){0.01f,0.01f},(vec3){c * 0.02f,0.0f,0.0f});
+		}
+	}
+	*/
 	counter += TRND1 * 500.0f;
-	counter %= 64 * 64;
+	counter %= 16 * 16;
 }
 
 #define RD_SOFTWARE 0
@@ -1127,7 +1168,7 @@ void drawHardware(){
 	glUseProgram(shader_program_ui);
 	glBufferData(GL_ARRAY_BUFFER,sizeof(triangles_t) * 6,triang,GL_DYNAMIC_DRAW);
 	glDrawArrays(GL_TRIANGLES,0,6);
-			
+
 	generateBlockOutline();
 			
 	glUseProgram(shaderprogram);
@@ -1140,15 +1181,16 @@ void drawHardware(){
 		/*
 		for(int i = 0;i < RD_MASK_X;i++){
 			for(int j = 0;j < RD_MASK_Y;j++){
+				
 				if(!mask[i][j])
 					continue;
-				glBegin(GL_TRIANGLES);
-				glVertex2f((float)j / WND_RESOLUTION.y * RD_MASK_SIZE * 2.0f - 1.0f,(float)i / WND_RESOLUTION.x * RD_MASK_SIZE * 2.0f - 1.0f);
-				glVertex2f((float)j / WND_RESOLUTION.y * RD_MASK_SIZE * 2.0f - 1.0f,(float)i / WND_RESOLUTION.x * RD_MASK_SIZE * 2.0f - 1.0f + 2.0f / (WND_RESOLUTION.x / RD_MASK_SIZE));
-				glVertex2f((float)j / WND_RESOLUTION.y * RD_MASK_SIZE * 2.0f - 1.0f + 2.0f / (WND_RESOLUTION.x / RD_MASK_SIZE),(float)i / WND_RESOLUTION.x * RD_MASK_SIZE * 2.0f - 1.0f + 2.0f / (WND_RESOLUTION.x / RD_MASK_SIZE));
-				glEnd();
+					
+
+				guiRectangle((vec2){(float)j / RD_MASK_Y * 2.0f - 1.0f,(float)i / RD_MASK_X * 2.0f - 1.0f},(vec2){2.0f / (WND_RESOLUTION.y / RD_MASK_SIZE),2.0f / (WND_RESOLUTION.x / RD_MASK_SIZE)},(vec3){1.0f,0.0f,0.0f});
 			}
 		}
+		glBufferData(GL_ARRAY_BUFFER,triangle_count * sizeof(triangles_t),triangles,GL_DYNAMIC_DRAW);
+		glDrawArrays(GL_TRIANGLES,0,triangle_count);
 		*/
 	}
 }
@@ -1166,7 +1208,7 @@ vec3 getBlockSelectLight(vec2 direction){
 		for(int j = 0;j < BLOCK_SELECT_LIGHT_QUALITY;j++){
 			vec3 angle = getLookAngle(direction);
 			float weight = tAbsf(vec3dotR(angle,normal));
-			vec3 luminance = rayGetLuminance(init.pos,direction,init.node);
+			vec3 luminance = rayGetLuminanceDir(init.pos,direction,init.node,camera_rd.pos);
 			vec3mul(&luminance,weight);
 			vec3addvec3(&s_color,luminance);
 			weight_total += weight;
@@ -1179,24 +1221,11 @@ vec3 getBlockSelectLight(vec2 direction){
 	return (vec3){s_color.b,s_color.g,s_color.r};
 }
 
-void drawBlockSelect(vec3 block_pos,float block_size,uint material_id){
+void drawBlockSelect(vec3 block_pos,vec3 luminance[3],float block_size,uint material_id){
 	material_t material = material_array[material_id];
 	vec2 x_direction = vec2addvec2R((vec2){camera_rd.dir.x + 0.1f,0.1f},(vec2){M_PI * 0.5f,0.0f});
 	vec2 y_direction = vec2addvec2R((vec2){camera_rd.dir.x + 0.1f,camera_rd.dir.y + 0.1f},(vec2){0.0f,M_PI * 0.5f});
 	vec2 z_direction = vec2addvec2R((vec2){camera_rd.dir.x + 0.1f,camera_rd.dir.y + 0.1f},(vec2){0.0f,0.0f});
-	vec3 x_luminance;
-	vec3 y_luminance;
-	vec3 z_luminance;
-	if(material.flags & MAT_LUMINANT){
-		x_luminance = (vec3){material.luminance.b,material.luminance.g,material.luminance.r};
-		y_luminance = (vec3){material.luminance.b,material.luminance.g,material.luminance.r};
-		z_luminance = (vec3){material.luminance.b,material.luminance.g,material.luminance.r};
-	}
-	else{
-		x_luminance = getBlockSelectLight((vec2){camera_rd.dir.x + M_PI,camera_rd.dir.y});
-		y_luminance = getBlockSelectLight((vec2){camera_rd.dir.x - M_PI * 0.5f,camera_rd.dir.y});
-		z_luminance = getBlockSelectLight((vec2){camera_rd.dir.x,camera_rd.dir.y + M_PI * 0.5f});
-	}
 	vec3 y_angle = getLookAngle(x_direction);
 	vec3 x_angle = getLookAngle(y_direction);
 	vec3 z_angle = getLookAngle(z_direction);
@@ -1214,62 +1243,50 @@ void drawBlockSelect(vec3 block_pos,float block_size,uint material_id){
 		vec3addvec3(&verticle_pos,x);
 		vec3addvec3(&verticle_pos,y);
 		vec3addvec3(&verticle_pos,z);
-		vec3 screen = pointToScreenZ(verticle_pos);
-		verticle_screen[i].y = screen.x / WND_RESOLUTION.x * 2.0f - 1.0f;
-		verticle_screen[i].x = screen.y / WND_RESOLUTION.y * 2.0f - 1.0f;
+		vec3 screen = pointToScreenRenderer(verticle_pos);
+		verticle_screen[i].y = screen.x;
+		verticle_screen[i].x = screen.y;
+		verticle_screen[i].z = screen.z;
 	}
 
-	float texture_offset = (1.0f / TEXTURE_AMMOUNT) * material.texture_id;
-	float texture_size = (1.0f / TEXTURE_AMMOUNT);
+	vec2 texture_coord[4];
+	texture_coord[0] = material.texture_pos;
+	texture_coord[1] = (vec2){material.texture_pos.x,material.texture_pos.y + material.texture_size.y};
+	texture_coord[2] = (vec2){material.texture_pos.x + material.texture_size.x,material.texture_pos.y};
+	texture_coord[3] = (vec2){material.texture_pos.x + material.texture_size.x,material.texture_pos.y + material.texture_size.y};
 
-	triangles[triangle_count + 0 ] = (triangles_t){verticle_screen[0].x,verticle_screen[0].y,texture_offset,0.0f,1.0f,1.0f,1.0f,1.0f};
-	triangles[triangle_count + 1 ] = (triangles_t){verticle_screen[1].x,verticle_screen[1].y,texture_offset,1.0f,1.0f,1.0f,1.0f,1.0f};
-	triangles[triangle_count + 2 ] = (triangles_t){verticle_screen[3].x,verticle_screen[3].y,texture_offset + texture_size,1.0f,1.0f,1.0f,1.0f,1.0f};
-	triangles[triangle_count + 3 ] = (triangles_t){verticle_screen[0].x,verticle_screen[0].y,texture_offset,0.0f,1.0f,1.0f,1.0f,1.0f};
-	triangles[triangle_count + 4 ] = (triangles_t){verticle_screen[2].x,verticle_screen[2].y,texture_offset + texture_size,0.0f,1.0f,1.0f,1.0f,1.0f};
-	triangles[triangle_count + 5 ] = (triangles_t){verticle_screen[3].x,verticle_screen[3].y,texture_offset + texture_size,1.0f,1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count + 0 ] = (triangles_t){verticle_screen[0],texture_coord[0],1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count + 1 ] = (triangles_t){verticle_screen[1],texture_coord[1],1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count + 2 ] = (triangles_t){verticle_screen[3],texture_coord[3],1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count + 3 ] = (triangles_t){verticle_screen[0],texture_coord[0],1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count + 4 ] = (triangles_t){verticle_screen[2],texture_coord[2],1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count + 5 ] = (triangles_t){verticle_screen[3],texture_coord[3],1.0f,1.0f,1.0f,1.0f};
 
-	triangles[triangle_count + 6 ] = (triangles_t){verticle_screen[0].x,verticle_screen[0].y,texture_offset,0.0f,1.0f,1.0f,1.0f,1.0f};
-	triangles[triangle_count + 7 ] = (triangles_t){verticle_screen[1].x,verticle_screen[1].y,texture_offset,1.0f,1.0f,1.0f,1.0f,1.0f};
-	triangles[triangle_count + 8 ] = (triangles_t){verticle_screen[5].x,verticle_screen[5].y,texture_offset + texture_size,1.0f,1.0f,1.0f,1.0f,1.0f};
-	triangles[triangle_count + 9 ] = (triangles_t){verticle_screen[0].x,verticle_screen[0].y,texture_offset,0.0f,1.0f,1.0f,1.0f,1.0f};
-	triangles[triangle_count + 10] = (triangles_t){verticle_screen[4].x,verticle_screen[4].y,texture_offset + texture_size,0.0f,1.0f,1.0f,1.0f,1.0f};
-	triangles[triangle_count + 11] = (triangles_t){verticle_screen[5].x,verticle_screen[5].y,texture_offset + texture_size,1.0f,1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count + 6 ] = (triangles_t){verticle_screen[0],texture_coord[0],1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count + 7 ] = (triangles_t){verticle_screen[1],texture_coord[1],1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count + 8 ] = (triangles_t){verticle_screen[5],texture_coord[3],1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count + 9 ] = (triangles_t){verticle_screen[0],texture_coord[0],1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count + 10] = (triangles_t){verticle_screen[4],texture_coord[2],1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count + 11] = (triangles_t){verticle_screen[5],texture_coord[3],1.0f,1.0f,1.0f,1.0f};
 
-	triangles[triangle_count + 12] = (triangles_t){verticle_screen[1].x,verticle_screen[1].y,texture_offset,0.0f,1.0f,1.0f,1.0f,1.0f};
-	triangles[triangle_count + 13] = (triangles_t){verticle_screen[3].x,verticle_screen[3].y,texture_offset,1.0f,1.0f,1.0f,1.0f,1.0f};
-	triangles[triangle_count + 14] = (triangles_t){verticle_screen[7].x,verticle_screen[7].y,texture_offset + texture_size,1.0f,1.0f,1.0f,1.0f,1.0f};
-	triangles[triangle_count + 15] = (triangles_t){verticle_screen[1].x,verticle_screen[1].y,texture_offset,0.0f,1.0f,1.0f,1.0f,1.0f};
-	triangles[triangle_count + 16] = (triangles_t){verticle_screen[5].x,verticle_screen[5].y,texture_offset + texture_size,0.0f,1.0f,1.0f,1.0f,1.0f};
-	triangles[triangle_count + 17] = (triangles_t){verticle_screen[7].x,verticle_screen[7].y,texture_offset + texture_size,1.0f,1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count + 12] = (triangles_t){verticle_screen[1],texture_coord[0],1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count + 13] = (triangles_t){verticle_screen[3],texture_coord[1],1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count + 14] = (triangles_t){verticle_screen[7],texture_coord[3],1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count + 15] = (triangles_t){verticle_screen[1],texture_coord[0],1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count + 16] = (triangles_t){verticle_screen[5],texture_coord[2],1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count + 17] = (triangles_t){verticle_screen[7],texture_coord[3],1.0f,1.0f,1.0f,1.0f};
 	
-	triangles[triangle_count + 0 ].lighting = x_luminance;
-	triangles[triangle_count + 1 ].lighting = x_luminance;
-	triangles[triangle_count + 2 ].lighting = x_luminance;
-	triangles[triangle_count + 3 ].lighting = x_luminance;
-	triangles[triangle_count + 4 ].lighting = x_luminance;
-	triangles[triangle_count + 5 ].lighting = x_luminance;
-
-	triangles[triangle_count + 6 ].lighting = y_luminance;
-	triangles[triangle_count + 7 ].lighting = y_luminance;
-	triangles[triangle_count + 8 ].lighting = y_luminance;
-	triangles[triangle_count + 9 ].lighting = y_luminance;
-	triangles[triangle_count + 10].lighting = y_luminance;
-	triangles[triangle_count + 11].lighting = y_luminance;
-
-	triangles[triangle_count + 12].lighting = z_luminance;
-	triangles[triangle_count + 13].lighting = z_luminance;
-	triangles[triangle_count + 14].lighting = z_luminance;
-	triangles[triangle_count + 15].lighting = z_luminance;
-	triangles[triangle_count + 16].lighting = z_luminance;
-	triangles[triangle_count + 17].lighting = z_luminance;
-
+	for(int i = 0;i < 6;i++){
+		triangles[triangle_count + i + 0 ].lighting = vec3mulvec3R(material.luminance,luminance[0]);
+		triangles[triangle_count + i + 6 ].lighting = vec3mulvec3R(material.luminance,luminance[1]);
+		triangles[triangle_count + i + 12].lighting = vec3mulvec3R(material.luminance,luminance[2]);
+	}
 	triangle_count += 18;
 }
 
-void genHoldStructure(hold_structure_t* hold,vec3 block_pos,float block_size){
+void genHoldStructure(hold_structure_t* hold,vec3 luminance[3],vec3 block_pos,float block_size){
 	if(hold->is_filled){
-		drawBlockSelect(block_pos,block_size,hold->block_id);
+		drawBlockSelect(block_pos,luminance,block_size,hold->block_id);
 		return;
 	}
 	block_size *= 0.5f;
@@ -1279,267 +1296,564 @@ void genHoldStructure(hold_structure_t* hold,vec3 block_pos,float block_size){
 		float dz = i & 1 ? 0.0f : block_size;
 		float dy = i & 2 ? 0.0f : block_size;
 		float dx = i & 4 ? 0.0f : block_size;
-		genHoldStructure(hold->child_s[i],(vec3){block_pos.x + dx,block_pos.y + dy,block_pos.z + dz},block_size);
+		vec3 block_pos_child = vec3addvec3R(block_pos,(vec3){dx,dy,dz});
+		genHoldStructure(hold->child_s[i],luminance,block_pos_child,block_size);
 	}
 }
 
 void genBlockSelect(){
-	if(tool_select){
-		genHoldStructure(&hold_structure,(vec3){0.0f,0.0f,0.0f},1.0f);
+	vec3 luminance[3];
+	material_t material = material_array[block_type];
+	if(material.flags & MAT_LUMINANT){
+		luminance[0] = (vec3){material.luminance.b,material.luminance.g,material.luminance.r};
+		luminance[1] = (vec3){material.luminance.b,material.luminance.g,material.luminance.r};
+		luminance[2] = (vec3){material.luminance.b,material.luminance.g,material.luminance.r};
+	}
+	else{
+		luminance[0] = getBlockSelectLight((vec2){camera_rd.dir.x + M_PI,camera_rd.dir.y});
+		luminance[1] = getBlockSelectLight((vec2){camera_rd.dir.x - M_PI * 0.5f,camera_rd.dir.y});
+		luminance[2] = getBlockSelectLight((vec2){camera_rd.dir.x,camera_rd.dir.y + M_PI * 0.5f});
+	}
+	switch(player_gamemode){
+	case GAMEMODE_CREATIVE:
+		switch(tool_select){
+		case 0:
+			drawBlockSelect(VEC3_ZERO,luminance,1.0f,block_type);
+			break;
+		case 1:
+			genHoldStructure(&hold_structure,luminance,(vec3){0.0f,0.0f,0.0f},1.0f);
+			break;
+		case 2:
+			drawBlockSelect((vec3){0.75f,0.0f,0.0f},luminance,0.25f,0);
+			drawBlockSelect((vec3){0.75f,0.0f,0.25f},luminance,0.25f,0);
+			drawBlockSelect((vec3){0.75f,0.0f,0.5f},luminance,0.25f,0);
+			drawBlockSelect((vec3){0.75f,0.0f,0.75f},luminance,0.25f,0);
+			break;
+		}
+		break;
+	case GAMEMODE_SURVIVAL:
+		vec3 block_pos[4] = {
+			{0.75f,0.0f,0.0f},
+			{0.75f,0.0f,0.25f},
+			{0.75f,0.0f,0.5f},
+			{0.75f,0.0f,0.75f}
+		};
+		if(GetKeyState(VK_RBUTTON) & 0x80){
+			vec3addvec3(&block_pos[0],(vec3){0.25f,-1.5f,0.0f});
+			vec3addvec3(&block_pos[1],(vec3){0.25f,-1.5f,0.0f});
+			vec3addvec3(&block_pos[2],(vec3){0.25f,-1.5f,0.0f});
+			vec3addvec3(&block_pos[3],(vec3){0.25f + (TRND1 - 0.5f) * 0.1f,-1.5f + (TRND1 - 0.5f) * 0.1f,0.0f});
+		}
+		if(player_attack_state){
+			float z_offset = (PLAYER_FIST_DURATION / 2 - tAbs(PLAYER_FIST_DURATION / 2 - player_attack_state)) * 0.1f;
+			vec3addvec3(&block_pos[0],(vec3){0.25f,-1.5f,z_offset});
+			vec3addvec3(&block_pos[1],(vec3){0.25f,-1.5f,z_offset});
+			vec3addvec3(&block_pos[2],(vec3){0.25f,-1.5f,z_offset});
+			vec3addvec3(&block_pos[3],(vec3){0.25f,-1.5f,z_offset});
+		}
+		drawBlockSelect(block_pos[0],luminance,0.25f,BLOCK_SKIN);
+		drawBlockSelect(block_pos[1],luminance,0.25f,BLOCK_SKIN);
+		drawBlockSelect(block_pos[2],luminance,0.25f,BLOCK_SKIN);
+		drawBlockSelect(block_pos[3],luminance,0.25f,BLOCK_SKIN);
+		break;
+	}
+
+}
+
+void mouseDown(){
+	if(player_gamemode != GAMEMODE_SURVIVAL)
+		return;
+	vec3 dir = getLookAngle(camera_rd.dir);
+	traverse_init_t init = initTraverse(camera.pos);
+	node_hit_t result = treeRay(ray3Create(init.pos,dir),init.node,camera_rd.pos);
+	if(!result.node)
+		return;
+	block_node_t node = node_root[result.node];
+	material_t material = material_array[node.block->material];
+	if(block_break_ptr != result.node){
+		block_break_progress = 0.0f;
+		block_break_ptr = result.node;
 		return;
 	}
-	drawBlockSelect(VEC3_ZERO,1.0f,block_type);
+	block_break_progress += 0.01f * material.hardness * (1 << tMax((node.depth - 9) * 3,0));
+	if(block_break_progress < 1.0f)
+		return;
+	float distance = rayNodeGetDistance(camera_rd.pos,node.pos,node.depth,dir,result.side);
+	vec3 spawn_pos = vec3addvec3R(camera_rd.pos,vec3mulR(dir,distance));
+	block_break_progress = 0.0f;
+	if(node.depth <= 12){
+		entity_t* entity = getNewEntity();
+		entity->type = 2;
+		entity->pos = spawn_pos;
+		entity->dir = VEC3_SINGLE((TRND1 - 0.5f) * 0.1f);
+		entity->block_type = node.block->material;
+		entity->texture_pos = material.texture_pos;
+		entity->texture_size = material.texture_size;
+		entity->color = material.luminance;
+		entity->size = 0.3f;
+		entity->block_ammount = 1 << tMax((12 - tMax(node.depth,9)) * 3,0);
+	}
+	rayRemoveVoxel(camera_rd.pos,dir,9);
+}
+
+void guiFrame(vec2 pos,vec2 size,vec3 color,float thickness){
+	guiRectangle(pos,(vec2){size.x,thickness},color);
+	guiRectangle(pos,(vec2){thickness,size.y},color);
+	guiRectangle((vec2){pos.x,pos.y + size.y},(vec2){size.x + thickness,thickness},color);
+	guiRectangle((vec2){pos.x + size.x,pos.y},(vec2){thickness,size.y},color);
+}
+
+void drawChar(vec2 pos,vec2 size,char c){
+	c -= 0x21;
+	int x = 9 - c / 10;
+	int y = c % 10;
+
+	float t_y = (1.0f / (2048)) * (1024 + x * 8);
+	float t_x = (1.0f / (2048 * 3)) * y * 8;
+
+	vec2 texture_coord[4];
+	texture_coord[0] = (vec2){t_x,t_y};
+	texture_coord[1] = (vec2){t_x,t_y + (1.0f / (2048)) * 8};
+	texture_coord[2] = (vec2){t_x + (1.0f / (2048 * 3)) * 8,t_y};
+	texture_coord[3] = (vec2){t_x + (1.0f / (2048 * 3)) * 8,t_y + (1.0f / (2048)) * 8};
+
+	triangles[triangle_count++] = (triangles_t){pos.x,pos.y,1.0f,texture_coord[0],1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count++] = (triangles_t){pos.x,pos.y + size.y,1.0f,texture_coord[1],1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count++] = (triangles_t){pos.x + size.x,pos.y + size.y,1.0f,texture_coord[3],1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count++] = (triangles_t){pos.x,pos.y,1.0f,texture_coord[0],1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count++] = (triangles_t){pos.x + size.x,pos.y,1.0f,texture_coord[2],1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count++] = (triangles_t){pos.x + size.x,pos.y + size.y,1.0f,texture_coord[3],1.0f,1.0f,1.0f,1.0f};
+}
+
+void drawNumber(vec2 pos,vec2 size,uint number){
+	char str[8];
+	if(!number){
+		drawChar(pos,size,'0');
+		return;
+	}
+	uint length = 0;
+	for(uint i = number;i;i /= 10)
+		length++;
+	pos.x += size.x * length;
+	for(int i = 0;i < length;i++){
+		drawChar(pos,size,number % 10 + 0x30);
+		number /= 10;
+		pos.x -= size.x;
+	}
+}
+
+void drawString(vec2 pos,float size,char* str){
+	while(*str){
+		drawChar(pos,(vec2){size,size},*str++);
+		pos.x += size;
+	}
+}
+
+void guiInventoryContent(inventoryslot_t* slot,vec2 pos,vec2 size){
+	if(slot->type == -1)
+		return;
+	drawNumber(vec2addvec2R(pos,(vec2){-0.04f,0.065f}),vec2mulR(size,0.3f),slot->ammount);
+	material_t material = material_array[slot->type];
+	vec2 texture_coord[4];
+	texture_coord[0] = material.texture_pos;
+	texture_coord[1] = (vec2){material.texture_pos.x,material.texture_pos.y + material.texture_size.y};
+	texture_coord[2] = (vec2){material.texture_pos.x + material.texture_size.x,material.texture_pos.y};
+	texture_coord[3] = (vec2){material.texture_pos.x + material.texture_size.x,material.texture_pos.y + material.texture_size.y};
+
+	triangles[triangle_count++] = (triangles_t){pos.x,pos.y,1.0f,texture_coord[0],1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count++] = (triangles_t){pos.x,pos.y + size.y,1.0f,texture_coord[1],1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count++] = (triangles_t){pos.x + size.x,pos.y + size.y,1.0f,texture_coord[3],1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count++] = (triangles_t){pos.x,pos.y,1.0f,texture_coord[0],1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count++] = (triangles_t){pos.x + size.x,pos.y,1.0f,texture_coord[2],1.0f,1.0f,1.0f,1.0f};
+	triangles[triangle_count++] = (triangles_t){pos.x + size.x,pos.y + size.y,1.0f,texture_coord[3],1.0f,1.0f,1.0f,1.0f};
+}
+
+void liquidUnderSub(uint node_ptr,block_node_t* liquid){
+	block_node_t* node = &node_root[node_ptr];
+	if(node->air){
+		float ammount = liquid->block->ammount;
+		liquid->block->ammount = 0.0f;
+		int depth_difference = node->depth - liquid->depth;
+		float cube_volume_rel = 1 << depth_difference * 2;
+		float ammount_2 = ammount * cube_volume_rel;
+		if(ammount_2 > 1.0f){
+			float overflow = ammount_2 - 1.0f;
+			ammount_2 = 1.0f;
+			liquid->block->ammount = overflow / cube_volume_rel;
+		}
+		setVoxel(node->pos.x,node->pos.y,node->pos.z,node->depth,liquid->block->material,ammount_2);
+		return;
+	}
+	if(node->block){
+		if(!(material_array[node->block->material].flags & MAT_LIQUID))
+			return;
+		float ammount = liquid->block->ammount;
+		liquid->block->ammount = 0.0f;
+		int depth_difference = node->depth - liquid->depth;
+		float cube_volume_rel = 1 << depth_difference * 2;
+		float ammount_2 = ammount * cube_volume_rel;
+		node->block->ammount_buffer += ammount_2;
+		float total_ammount = node->block->ammount_buffer + node->block->ammount_buffer;
+		if(total_ammount > 1.0f){
+			float overflow = total_ammount - 1.0f;
+			node->block->ammount_buffer -= overflow;
+			liquid->block->ammount = overflow / cube_volume_rel;
+		}
+		return;
+	}
+	for(int i = 4;i < 8;i++)
+		liquidUnderSub(node->child_s[i],liquid);
+}
+
+void liquidUnder(int x,int y,int z,uint depth){
+	if(z - 1 < 0)
+		return;
+	block_node_t* liquid = &node_root[getNode(x,y,z,depth)];
+	uint node = getNode(x,y,z - 1,depth);
+	if(node_root[node].block){
+		if(!(material_array[node_root[node].block->material].flags & MAT_LIQUID))
+			return;
+		float ammount = liquid->block->ammount;
+		liquid->block->ammount = 0.0f;
+		node_root[node].block->ammount_buffer += ammount;
+		float total_ammount = node_root[node].block->ammount + node_root[node].block->ammount_buffer;
+		if(total_ammount > 1.0f){
+			float overflow = total_ammount - 1.0f;
+			liquid->block->ammount = overflow;
+			node_root[node].block->ammount_buffer -= overflow;
+		}
+		return;
+	}
+	if(node_root[node].air){
+		return;
+		float ammount = liquid->block->ammount;
+		liquid->block->ammount = 0.0f;
+		setVoxel(x,y,z - 1,depth,liquid->block->material,ammount);
+		return;
+	}
+	
+	for(int i = 4;i < 8;i++)
+		liquidUnderSub(node_root[node].child_s[i],liquid);
+}
+
+void liquidSideSub(uint node_ptr,block_node_t* liquid,uint* neighbour,float level,float dx,float dy){
+	block_node_t* node = &node_root[node_ptr];
+	int depth_difference = node->depth - liquid->depth;
+	float cube_volume = 1 << depth_difference * 2;
+	float square_volume = 1 << depth_difference;
+	if(node->block){
+		if(!(material_array[node->block->material].flags & MAT_LIQUID))
+			return;
+
+		float ammount = liquid->block->ammount;
+		float n = (ammount - level - node->block->ammount / square_volume) / (square_volume + 1.0f);
+		if(n < 0.0f)
+			return;
+		float ammount_3 = n * cube_volume;
+		liquid->block->ammount -= n;
+		node->block->ammount_buffer += ammount_3;
+		float total_ammount = node->block->ammount_buffer + node->block->ammount;
+		if(total_ammount > 1.0f){
+			float overflow = total_ammount - 1.0f;
+			node->block->ammount_buffer -= overflow;
+			liquid->block->ammount += overflow / cube_volume;
+		}
+		return;
+	}
+	if(node->air){
+		float block_size = (float)((1 << 20) >> node->depth) * MAP_SIZE_INV;
+		vec3 block_pos = {node->pos.x,node->pos.y,node->pos.z};
+		float o_x = (float)dx * 0.499f + 0.5f;
+		float o_y = (float)dy * 0.499f + 0.5f;
+		if(!dx)
+			o_x = TRND1;
+		if(!dy)
+			o_y = TRND1;
+		vec3addvec3(&block_pos,(vec3){o_x,o_y,liquid->block->ammount * TRND1});
+		vec3mul(&block_pos,block_size);
+		entity_t* entity = getNewEntity();
+		entity->type = ENTITY_WATER;
+		entity->size = 0.2f;
+		entity->texture_pos = (vec2){0.0f,0.0f};
+		entity->texture_size = (vec2){0.01f,0.01f};
+		entity->color = (vec3){0.2f,0.4f,1.0f};
+		entity->dir = (vec3){dx * 0.03f,dy * 0.03f,0.0f};
+		entity->pos = block_pos;
+		entity->ammount = liquid->block->ammount * 0.03f;
+		entity->block_type = liquid->block->material;
+		entity->block_depth = liquid->depth;
+		liquid->block->ammount -= liquid->block->ammount * 0.03f;
+		return;
+		float ammount = liquid->block->ammount;
+		float n = (ammount - level) / (square_volume + 1.0f);
+		if(n < 0.0f)
+			return;
+		float ammount_3 = n * cube_volume;
+		liquid->block->ammount -= n;
+		if(ammount_3 > 1.0f){
+			float overflow = ammount_3 - 1.0f;
+			ammount_3 = 1.0f;
+			liquid->block->ammount += overflow / cube_volume;
+		}
+		setVoxel(node->pos.x,node->pos.y,node->pos.z,node->depth,liquid->block->material,ammount_3);
+		return;
+	}
+	float level_add = 1.0f / (2 << depth_difference) + level;
+	for(int i = 0;i < 4;i++)
+		liquidSideSub(node->child_s[neighbour[i]],liquid,neighbour,i < 2 ? level : level_add,dx,dy);
+}
+
+void liquidSide(uint x,uint y,uint z,uint depth,uint side,uint* neighbour){
+	int dx = side >> 1 == VEC3_X ? side & 1 ? -1 : 1 : 0;
+	int dy = side >> 1 == VEC3_Y ? side & 1 ? -1 : 1 : 0;
+	int dz = side >> 1 == VEC3_Z ? side & 1 ? -1 : 1 : 0;
+	block_node_t* node   = &node_root[getNode(x + dx,y + dy,z + dz,depth)];
+	block_node_t* liquid = &node_root[getNode(x,y,z,depth)];
+	int depth_difference = liquid->depth - node->depth;
+	float cube_volume = 1 << depth_difference * 2;
+	float square_volume = 1 << depth_difference;
+	if(node->block){
+		if(!(material_array[node->block->material].flags & MAT_LIQUID))
+			return;
+		float level = (liquid->pos.z - node->pos.z * square_volume); 
+		float n = ((liquid->block->ammount + level) / square_volume - node->block->ammount) / (square_volume + 1.0f);
+		if(n < 0.0f)
+			return;
+		liquid->block->ammount -= n * cube_volume;
+		if(liquid->block->ammount < 0.0f){
+			float underflow = -liquid->block->ammount;
+			liquid->block->ammount = 0.0f;
+			n -= underflow / cube_volume;
+		}
+		node->block->ammount_buffer += n;
+		return;
+	}
+	
+	if(node->air){
+		float block_size = (float)((1 << 20) >> liquid->depth) * MAP_SIZE_INV;
+		vec3 block_pos = {liquid->pos.x,liquid->pos.y,liquid->pos.z};
+		float o_x = (float)dx * 0.5f + 0.5f;
+		float o_y = (float)dy * 0.5f + 0.5f;
+		if(!dx)
+			o_x = TRND1;
+		if(!dy)
+			o_y = TRND1;
+		vec3addvec3(&block_pos,(vec3){o_x,o_y,liquid->block->ammount * TRND1});
+		vec3mul(&block_pos,block_size);
+		entity_t* entity = getNewEntity();
+		entity->type = ENTITY_WATER;
+		entity->size = 0.2f;
+		entity->texture_pos = (vec2){0.0f,0.0f};
+		entity->texture_size = (vec2){0.01f,0.01f};
+		entity->color = (vec3){0.2f,0.4f,1.0f};
+		entity->dir = (vec3){dx * 0.03f,dy * 0.03f,0.0f};
+		entity->pos = block_pos;
+		entity->ammount = liquid->block->ammount * 0.03f;
+		entity->block_type = liquid->block->material;
+		entity->block_depth = liquid->depth;
+		liquid->block->ammount -= liquid->block->ammount * 0.03f;
+		return;
+	}
+	
+	for(int i = 0;i < 4;i++)
+		liquidSideSub(node->child_s[neighbour[i]],liquid,neighbour,i < 2 ? 0.0f : 0.5f,-dx,-dy);
+}
+
+#define BLOCKTICK_RADIUS 40.0f
+
+void gasSpread(uint x,uint y,uint z,uint depth,uint side,uint* neighbour){
+	int dx = side >> 1 == VEC3_X ? side & 1 ? -1 : 1 : 0;
+	int dy = side >> 1 == VEC3_Y ? side & 1 ? -1 : 1 : 0;
+	int dz = side >> 1 == VEC3_Z ? side & 1 ? -1 : 1 : 0;
+	block_node_t* node   = &node_root[getNode(x + dx,y + dy,z + dz,depth)];
+	block_node_t* base = &node_root[getNode(x,y,z,depth)];
+	if(node->block){
+		return;
+	}
+	if(node->air){
+		float ammount_1 = node->air->o2;
+		float ammount_2 = base->air->o2;
+		float avg = (ammount_1 + ammount_2) * 0.5f;
+		node->air->o2 = avg;
+		base->air->o2 = avg;
+		return;
+	}
+}
+
+void blockTick(uint node_ptr){
+	block_node_t* node = &node_root[node_ptr];
+	if(node->air){
+		for(int i = 0;i < 6;i++){
+			gasSpread(node->pos.x,node->pos.y,node->pos.z,node->depth,i,border_block_table[i]);
+		}
+		return;
+	}
+	if(node->block){
+		material_t material = material_array[node->block->material];
+		if(material.flags & MAT_LIQUID){
+			liquidUnder(node->pos.x,node->pos.y,node->pos.z,node->depth);
+			if(node->block->ammount > 0.001f){
+				liquidSide(node->pos.x,node->pos.y,node->pos.z,node->depth,0,border_block_table[0]);
+				liquidSide(node->pos.x,node->pos.y,node->pos.z,node->depth,1,border_block_table[1]);
+				liquidSide(node->pos.x,node->pos.y,node->pos.z,node->depth,2,border_block_table[2]);
+				liquidSide(node->pos.x,node->pos.y,node->pos.z,node->depth,3,border_block_table[3]);
+			}
+		}
+		return;
+	}
+	float block_size = (float)((1 << 20) >> node->depth) * MAP_SIZE_INV;
+	vec3 block_pos = {node->pos.x,node->pos.y,node->pos.z};
+	vec3add(&block_pos,0.5f);
+	vec3mul(&block_pos,block_size);
+	float distance = sdCube(camera_rd.pos,block_pos,block_size);
+	if(distance > BLOCKTICK_RADIUS)
+		return;
+	for(int i = 0;i < 8;i++){
+		if(!node->child_s[i])
+			continue;
+		blockTick(node->child_s[i]);
+	}
+}
+
+void blockTransferBuffer(uint node_ptr){
+	block_node_t* node = &node_root[node_ptr];
+	if(node->air){
+		return;
+	}
+	if(node->block){
+		material_t material = material_array[node->block->material];
+		if(material.flags & MAT_LIQUID){
+			node->block->ammount += node->block->ammount_buffer;
+			node->block->ammount_buffer = 0.0f;
+			if(!node->block->ammount)
+				removeVoxel(node_ptr);
+		}
+		return;
+	}
+	float block_size = (float)((1 << 20) >> node->depth) * MAP_SIZE_INV;
+	vec3 block_pos = {node->pos.x,node->pos.y,node->pos.z};
+	vec3add(&block_pos,0.5f);
+	vec3mul(&block_pos,block_size);
+	float distance = sdCube(camera_rd.pos,block_pos,block_size);
+	if(distance > BLOCKTICK_RADIUS)
+		return;
+	for(int i = 0;i < 8;i++){
+		if(!node->child_s[i])
+			continue;
+		blockTransferBuffer(node->child_s[i]);
+	}
 }
 
 void draw(){
+	unsigned long long global_tick = GetTickCount64();
+	unsigned long long time;
 	for(;;){
-		//printf("%f:%f:%f\n",camera.pos.x,camera.pos.y,camera.pos.z);
 		is_rendering = true;
-		unsigned long long t = __rdtsc();
+
 		camera_rd = camera;
-		camera_rd.pre[0] = camera_rd.tri.x * camera_rd.tri.z;
-		camera_rd.pre[1] = camera_rd.tri.y * camera_rd.tri.z;
-		camera_rd.pre[2] = camera_rd.tri.x * camera_rd.tri.w;
-		camera_rd.pre[3] = camera_rd.tri.y * camera_rd.tri.w;
-		camera_rd.pre[4] = camera_rd.tri.w + camera_rd.tri.z;
 
-		if(1){
-			unsigned long long time = __rdtsc();
-			if(!context_is_gl){
-				memset(vram.draw,0,sizeof(pixel_t) * WND_RESOLUTION.x * WND_RESOLUTION.y);
-				memset(vram.render,0,sizeof(pixel_t) * WND_RESOLUTION.x * WND_RESOLUTION.y);
-				initGL(context);
-			}
-			if(lighting_thread_done){
-				lighting_thread = CreateThread(0,0,(LPTHREAD_START_ROUTINE)lighting,0,0,0);
-				lighting_thread_done = false;
-			}
-			castVisibilityRays();
-			genBlockSelect();
-			sceneGatherTriangles(0);
-			if(RD_SOFTWARE)
-				drawSoftware();
+		static bool hand_light;
+		vec3 hand_light_luminance;
+		vec3 hand_light_pos;
+
+		if(in_console){
+			drawString((vec2){-0.8f,0.8f},0.03f,"console");
+			drawString((vec2){-0.8f,0.7f},0.02f,console_buffer);
+			guiRectangle((vec2){-1.0f,0.2f},(vec2){0.8f,0.8f},(vec3){0.1f,0.2f,0.25f});
+		}
+		if(!context_is_gl){
+			memset(vram.draw,0,sizeof(pixel_t) * WND_RESOLUTION.x * WND_RESOLUTION.y);
+			memset(vram.render,0,sizeof(pixel_t) * WND_RESOLUTION.x * WND_RESOLUTION.y);
+			initGL(context);
+		}
+		for(int i = 0;i < 8;i++){
+			guiFrame((vec2){-0.5f + i * 0.17f,-0.85f},(vec2){0.15f,0.15f},VEC3_ZERO,0.01f);
+			guiInventoryContent(&inventory_slot[i],(vec2){-0.475f + i * 0.17f,-0.825f},(vec2){0.1f,0.1f});
+		}
+		for(int i = 0;i < 8;i++){
+			vec3 color;
+			if(inventory_select == i)
+				color = (vec3){1.0f,0.0f,0.0f};
+			else if(i == 0)
+				color = (vec3){1.0f,1.0f,0.0f};
 			else
-				drawHardware();
-			//calibrateExposure();
-			memset(mask,0,RD_MASK_X * RD_MASK_Y);
-			triangle_count = 0;
-			float f = tMin(__rdtsc() - time >> 18,WND_RESOLUTION.x - 1);
-			f /= WND_RESOLUTION_X / 2.0f;
-			f -= 1.0f;
-			SwapBuffers(context);
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-			glClearColor(LUMINANCE_SKY.r,LUMINANCE_SKY.g,LUMINANCE_SKY.b,1.0f);
-			glColor3f(0.0f,1.0f,0.0f);
-			glBegin(GL_TRIANGLES);
-			glVertex2f(-0.9f,-1.0f);
-			glVertex2f(-0.9f,f);
-			glVertex2f(-0.89f,-1.0f);
-			glVertex2f(-0.89f,-1.0f);
-			glVertex2f(-0.9f,f);
-			glVertex2f(-0.89f,f);
-			glEnd();
-			
-			if(r_click){
-				r_click = false;
-				playerRemoveBlock();
-			}
-			if(l_click){
-				l_click = false;
-				playerAddBlock();
-			}
-			continue;
+				color = (vec3){1.0f,1.0f,1.0f};
+			guiFrame((vec2){-0.505f + i * 0.17f,-0.855f},(vec2){0.15f,0.15f},color,0.02f);
 		}
-		else{
-			if(context_is_gl){
-				context_is_gl = false;
-				wglDeleteContext(context);
-			}
-		if(DRAW_MULTITHREAD){
-			HANDLE draw_threads[4];
-			draw_threads[0] = CreateThread(0,0,(LPTHREAD_START_ROUTINE)draw_1,(void*)0,0,0);
-			draw_threads[1] = CreateThread(0,0,(LPTHREAD_START_ROUTINE)draw_1,(void*)1,0,0);
-			draw_threads[2] = CreateThread(0,0,(LPTHREAD_START_ROUTINE)draw_1,(void*)2,0,0);
-			draw_threads[3] = CreateThread(0,0,(LPTHREAD_START_ROUTINE)draw_1,(void*)3,0,0);
-			WaitForMultipleObjects(4,draw_threads,TRUE,INFINITE);
+		castVisibilityRays();
+		genBlockSelect();
+		sceneGatherTriangles(0);
+		if(RD_SOFTWARE)
+			drawSoftware();
+		else
+			drawHardware();
+		//calibrateExposure();
+		memset(mask,0,RD_MASK_X * RD_MASK_Y);
+		triangle_count = 0;
+		float f = tMin(__rdtsc() - time >> 18,WND_RESOLUTION.x - 1);
+		f /= WND_RESOLUTION_X / 2.0f;
+		f -= 1.0f;
+		SwapBuffers(context);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		glClearColor(LUMINANCE_SKY.r,LUMINANCE_SKY.g,LUMINANCE_SKY.b,1.0f);
+		glColor3f(0.0f,1.0f,0.0f);
+		glBegin(GL_TRIANGLES);
+		glVertex2f(-0.9f,-1.0f);
+		glVertex2f(-0.9f,f);
+		glVertex2f(-0.89f,-1.0f);
+		glVertex2f(-0.89f,-1.0f);
+		glVertex2f(-0.9f,f);
+		glVertex2f(-0.89f,f);
+		glEnd();
+		time = __rdtsc();
+		unsigned long long tick_new = GetTickCount64();
+		unsigned int difference = tick_new - global_tick;
+		if(hand_light){
+			calculateDynamicLight(hand_light_pos,0,20.0f,vec3negR(hand_light_luminance));
+			hand_light = false;
 		}
-		else{
-			vec3 camera_pos = camera.pos;
-			traverse_init_t init_test = initTraverse(camera_pos);
-			for(int x = 0;x < WND_RESOLUTION.x;x += BEAM_SIZE){
-				for(int y = 0;y < WND_RESOLUTION.y;y += BEAM_SIZE){
-					beamTrace16(init_test,camera_pos,x,y,0);
-				}
-			}
+		blockTick(0);
+		blockTransferBuffer(0);
+		entityTick(difference / 4);
+		if(!in_console)
+			physics(difference / 4);
+		if(player_attack_state){
+			playerAttack();
+			player_attack_state -= difference / 4;
+			if(player_attack_state < 0)
+				player_attack_state = 0;
 		}
+		lighting();
+		if(tool_select == 0 && material_array[block_type].flags & MAT_LUMINANT){
+			vec3 luminance = material_array[block_type].luminance;
+			hand_light_luminance = luminance;
+			hand_light_pos = camera_rd.pos;
+			calculateDynamicLight(camera_rd.pos,0,20.0f,luminance);
+			hand_light = true;
 		}
-		draw_pool = 0;
-		
-		float f = tMin(__rdtsc() - t >> 18,WND_RESOLUTION.x - 1);
-		static float avg;
-		avg = avg * 0.95f + f * 0.05f;
-		for(int i = 0;i < avg;i++){
-			for(int j = 10;j < 20;j++){
-				vram.draw[i * (int)WND_RESOLUTION.y + j] = (pixel_t){0,170,0};
-			}
+		for(int i = 0;i < ENTITY_AMMOUNT;i++){
+			if(!entity_array[i].alive)
+				continue;
+			if(entity_array[i].flags & ENTITY_LUMINANT)
+				calculateDynamicLight(entity_array[i].pos,0,10.0f,entity_array[i].color);
+			if(!entity_array[i].air_ptr)
+				continue;
+			entity_array[i].air_ptr->has_entity = true;
 		}
-
 		if(r_click){
 			r_click = false;
 			playerRemoveBlock();
 		}
-
 		if(l_click){
 			l_click = false;
-			playerAddBlock();
+			clickLeft();
 		}
+		if(GetKeyState(VK_RBUTTON) & 0x80)
+			mouseDown();
 
-		vec3 look_direction = getLookAngle(camera.dir);
-		traverse_init_t init = initTraverse(camera_rd.pos);
-		node_hit_t result = traverseTree(ray3Create(init.pos,look_direction),init.node);
-		if(result.node){
-			block_node_t node = node_root[result.node];
-			block_t* block = node.block;
-			float edit_size = (float)MAP_SIZE / (1 << edit_depth) * 2.0f;
-
-			uint block_depth = node.depth;
-			ivec3 block_pos_i = node.pos;
-			
-			block_pos_i.a[result.side] += (look_direction.a[result.side] < 0.0f) * 2 - 1;
-			vec3 block_pos;
-			if(block_depth > edit_depth)
-				block_pos = (vec3){block_pos_i.x >> (block_depth - edit_depth),block_pos_i.y >> (block_depth - edit_depth),block_pos_i.z >> (block_depth - edit_depth)};
-			else
-				block_pos = (vec3){block_pos_i.x << (edit_depth - block_depth),block_pos_i.y << (edit_depth - block_depth),block_pos_i.z << (edit_depth - block_depth)};
-			vec3 point[8];
-			vec2 screen_point[8];
-
-			if(block_depth < edit_depth){
-				vec3 pos;
-				float block_size = (float)MAP_SIZE / (1 << block_depth) * 2.0f;
-				pos.x = node.pos.x * block_size;
-				pos.y = node.pos.y * block_size;
-				pos.z = node.pos.z * block_size;
-				plane_t plane = getPlane(pos,look_direction,result.side,block_size);
-				vec3 plane_pos = vec3subvec3R(plane.pos,camera.pos);
-				float dst = rayIntersectPlane(plane_pos,look_direction,plane.normal);
-				vec3 hit_pos = vec3addvec3R(camera.pos,vec3mulR(look_direction,dst));
-				vec2 uv = {
-					(hit_pos.a[plane.x] - plane.pos.a[plane.x]) / block_size,
-					(hit_pos.a[plane.y] - plane.pos.a[plane.y]) / block_size
-				};
-				uv.x *= 1 << edit_depth - block_depth;
-				uv.y *= 1 << edit_depth - block_depth;
-				block_pos.a[result.side] += ((look_direction.a[result.side] > 0.0f) << (edit_depth - block_depth)) - (look_direction.a[result.side] > 0.0f);
-				block_pos.a[plane.x] += tFloorf(uv.x);
-				block_pos.a[plane.y] += tFloorf(uv.y);
-			}
-
-			vec3mul(&block_pos,edit_size);
-
-			point[0] = (vec3){block_pos.x + 0.0f,block_pos.y + 0.0f,block_pos.z + 0.0f};
-			point[1] = (vec3){block_pos.x + 0.0f,block_pos.y + 0.0f,block_pos.z + edit_size};
-			point[2] = (vec3){block_pos.x + 0.0f,block_pos.y + edit_size,block_pos.z + 0.0f};
-			point[3] = (vec3){block_pos.x + 0.0f,block_pos.y + edit_size,block_pos.z + edit_size};
-			point[4] = (vec3){block_pos.x + edit_size,block_pos.y + 0.0f,block_pos.z + 0.0f};
-			point[5] = (vec3){block_pos.x + edit_size,block_pos.y + 0.0f,block_pos.z + edit_size};
-			point[6] = (vec3){block_pos.x + edit_size,block_pos.y + edit_size,block_pos.z + 0.0f};
-			point[7] = (vec3){block_pos.x + edit_size,block_pos.y + edit_size,block_pos.z + edit_size};
-			for(int i = 0;i < 8;i++)
-				screen_point[i] = pointToScreen(point[i]);
-			pixel_t green = {0,255,0};
-			drawLine(screen_point[0],screen_point[1],green);
-			drawLine(screen_point[0],screen_point[2],green);
-			drawLine(screen_point[0],screen_point[4],green);
-			drawLine(screen_point[1],screen_point[3],green);
-			drawLine(screen_point[1],screen_point[5],green);
-			drawLine(screen_point[2],screen_point[3],green);
-			drawLine(screen_point[2],screen_point[6],green);
-			drawLine(screen_point[3],screen_point[7],green);
-			drawLine(screen_point[4],screen_point[5],green);
-			drawLine(screen_point[4],screen_point[6],green);
-			drawLine(screen_point[5],screen_point[7],green);
-			drawLine(screen_point[6],screen_point[7],green);
-		}
-
-		if(menu_select){
-			for(int x = WND_RESOLUTION.x / 2 - 200 / RES_SCALE;x < WND_RESOLUTION.x / 2 + 200 / RES_SCALE;x++){
-				for(int y = WND_RESOLUTION.y / 2 - 400 / RES_SCALE;y < WND_RESOLUTION.y / 2 + 400 / RES_SCALE;y++){
-					pixel_t pixel = vram.draw[x * (int)WND_RESOLUTION.y + y];
-					pixel.r = pixel.r + 80 >> 1;
-					pixel.g = pixel.g + 80 >> 1;
-					pixel.b = pixel.b + 80 >> 1;
-					vram.draw[x * (int)WND_RESOLUTION.y + y] = pixel;
-				}
-			}
-			drawButton();
-		}
-
-		if(!tool_select){
-			if(material_array[block_type].texture.data){
-				int offset_x = 20 / RES_SCALE;
-				int offset_y = WND_RESOLUTION.y - 140 / RES_SCALE;
-				int size = 120 / RES_SCALE;
-				texture_t texture = material_array[block_type].texture;
-				for(int i = offset_x;i < offset_x + size;i++){
-					for(int j = offset_y;j < offset_y + size;j++){
-						int tx = (i - offset_x) * (texture.size) / size;
-						int ty = (j - offset_y) * (texture.size) / size;
-						vram.draw[i * (int)WND_RESOLUTION.y + j] = texture.data[tx * texture.size + ty];
-					}
-				}
-			}
-		}
-
-		uint brightness = 0;
-		for(int i = 0;i < WND_RESOLUTION.x;i += WND_RESOLUTION.x / 32){
-			for(int j = 0;j < WND_RESOLUTION.y;j += WND_RESOLUTION.y / 32){
-				pixel_t pixel = vram.draw[i * (int)WND_RESOLUTION.y + j];
-				brightness += tMax(tMax(pixel.r,pixel.g),pixel.b);
-			}
-		}
-		float brightness_f = brightness / (float)(32 * 32 * 127);
-		camera_exposure += (1.0f - brightness_f) * 0.01f;
-		camera_exposure = camera_exposure * 0.99f + 0.01f;
-		//camera_exposure = camera_exposure * 0.99f + 0.01f;
-
-		is_rendering = false;
-		//printf("%i\n",__rdtsc() - t);
-		int middle_pixel = WND_RESOLUTION.x * WND_RESOLUTION.y / 2 + WND_RESOLUTION.y / 2;
-		vram.draw[middle_pixel] = (pixel_t){0,255,0};
-		vram.draw[middle_pixel + 1] = (pixel_t){0,0,0};
-		vram.draw[middle_pixel - 1] = (pixel_t){0,0,0};
-		vram.draw[middle_pixel + (int)WND_RESOLUTION.y] = (pixel_t){0,0,0};
-		vram.draw[middle_pixel - (int)WND_RESOLUTION.y] = (pixel_t){0,0,0};
-		pixel_t* temp = vram.render;
-		while(frame_ready)
-			Sleep(1);
-		vram.render = vram.draw;
-		vram.draw = temp;
-		frame_ready = TRUE;
+		//trySpawnEnemy();
+		global_tick = tick_new;
 	}	
-}
-
-void entity(){
-	return;
-	/*
-	for(;;){
-		for(uint i = 0;i < block_node_test_c + 1;i++){
-			if(!node_root[i].block)
-				continue;
-			material_t material = material_array[node_root[i].block->material];
-			ivec3 pos = node_root[i].block->pos;
-			int depth = node_root[i].block->depth;
-			if(node_root[i].block->material){
-				if(TRND1 > 0.01f || getNode(pos.x,pos.y,pos.z + 1,depth))
-					continue;
-				setVoxel(pos.x,pos.y,pos.z + 1,node_root[i].block->depth,node_root[i].block->material);
-				removeVoxel(i);
-			} 
-		}
-		Sleep(16);
-	}
-	*/
 }
 
 uint tNoise(uint seed){
@@ -1551,13 +1865,13 @@ uint tNoise(uint seed){
 	return seed;
 }
 
-void main(){
+void main(){ 
 #pragma comment(lib,"Winmm.lib")
 	timeBeginPeriod(1);
 
 	node_root = MALLOC(sizeof(block_node_t) * 1024 * 1024);
-	triangles = MALLOC(sizeof(triangles) * 10000000);
-	texture_atlas = MALLOC(sizeof(pixel_t) * 1024 * 1024 * TEXTURE_AMMOUNT);
+	triangles = MALLOC(sizeof(triangles_t) * 10000000);
+	texture_atlas = MALLOC(sizeof(pixel_t) * 1024 * 1024 * 2 * TEXTURE_AMMOUNT);
 	node_root[0].parent = 0xffffffff;
 
 	bmi.bmiHeader.biWidth  = WND_RESOLUTION.y;
@@ -1572,6 +1886,7 @@ void main(){
 	texture[3] = loadBMP("img/ice.bmp");
 	texture[4] = loadBMP("img/geurt.bmp");
 	texture[5] = loadBMP("img/grass.bmp");
+	texture[6] = loadBMP("img/font.bmp");
 
 	for(int i = 0;i < TEXTURE_AMMOUNT;i++){
 		for(int x = 0;x < 1024;x++){
@@ -1583,6 +1898,27 @@ void main(){
 		}
 	}
 
+	for(int x = 0;x < 80;x++){
+		for(int y = 0;y < 80;y++){
+			pixel_t color = texture[6].data[x * 80 + y];
+			texture_atlas[(x + 1024) * 1024 * TEXTURE_AMMOUNT + y] = (pixel_t){color.b,color.g,color.r};
+			if(color.b)
+				texture_atlas[(x + 1024) * 1024 * TEXTURE_AMMOUNT + y].a = 0xff;
+		}
+	}
+
+	for(int x = 0;x < 64;x++){
+		for(int y = 0;y < 64;y++){
+			if(x > 4 && x < 12 && y > 4 && y < 12){
+				continue;
+			}
+			if(y > 4 && y < 12 && x > 48 && x < 60){
+				continue;
+			}
+			texture_atlas[(x + 1024 + 80) * 1024 * TEXTURE_AMMOUNT + y] = (pixel_t){50,180,50};
+		}
+	}
+
 	material_array[0].texture = texture[0];
 	material_array[1].texture = texture[1];
 	material_array[2].texture = texture[2];
@@ -1590,7 +1926,19 @@ void main(){
 
 	int depth = 7;
 	int m = 1 << depth;
-	
+	/*
+	for(int x = 0;x < m;x++){
+		for(int y = 0;y < m;y++){
+			for(int z = 0;z < m;z++){
+				if(z == m / 2 && y == m / 2 && x == m / 2)
+					continue;
+				setVoxelSolid(x,y,z,depth,BLOCK_SANDSTONE);
+			}
+		}
+	}
+	setVoxelSolid(m * 4,m * 4 + 2,m * 4 + 4,depth + 3,BLOCK_SANDSTONE);
+	setVoxelSolid(m * 2 + 1,m * 2 + 1,m * 2,depth + 2,BLOCK_SPAWNLIGHT);
+	*/
 	
 	uint n_size_bits = 4;
 	uint n_size = (1 << n_size_bits);
@@ -1615,12 +1963,10 @@ void main(){
 			uint f = (n[0] + n[1] + n[2] + n[3]);
 			for(int z = 0;z < m / 2;z++){
 			if(f + 1 > z)
-				setVoxel(x,y,z,depth,1);	
+				setVoxelSolid(x,y,z,depth,0);	
 			}
 		}
 	}
-	
-	calculateNodeLuminanceTree(0,16);
 	
 	vram.draw = MALLOC(sizeof(pixel_t) * WND_RESOLUTION.x * WND_RESOLUTION.y);
 	vram.render = MALLOC(sizeof(pixel_t) * WND_RESOLUTION.x * WND_RESOLUTION.y);
@@ -1630,10 +1976,7 @@ void main(){
 	context = GetDC(window);
 	ShowCursor(FALSE);
 
-	physics_thread  = CreateThread(0,0,(LPTHREAD_START_ROUTINE)physics,0,0,0);	
-	thread_render   = CreateThread(0,0,(LPTHREAD_START_ROUTINE)render,0,0,0);
-	lighting_thread = CreateThread(0,0,(LPTHREAD_START_ROUTINE)lighting,0,0,0);
-	entity_thread   = CreateThread(0,0,(LPTHREAD_START_ROUTINE)entity,0,0,0);
+	initSound(window);
 
 	CreateThread(0,0,(LPTHREAD_START_ROUTINE)draw,0,0,0);
 
