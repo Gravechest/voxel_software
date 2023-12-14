@@ -109,7 +109,7 @@ prop_t getRayInfo(traverse_init_t init,vec3 angle,vec3 pos){
 	node_hit_t hit = treeRay(ray3Create(init.pos,angle),init.node,pos);
 	if(!hit.node)
 		return (prop_t){-1.0f};
-	block_node_t node = node_root[hit.node];
+	node_t node = node_root[hit.node];
 	vec3 block_pos;
 	float block_size = (float)MAP_SIZE / (1 << node.depth) * 2.0f;
 	block_pos.x = node.pos.x * block_size;
@@ -126,16 +126,16 @@ void soundRay(SOUNDFILE sound,float* f_buffer,vec3 pos,ivec3 normal,float direct
 	if(delay + sound.sz / 2 - 1000 >= BUFFER_SIZE / 2)
 		return;
 	traverse_init_t init = initTraverse(pos);
-	vec3 to_player_direction = vec3normalizeR(vec3subvec3R(camera_rd.pos,pos));
+	vec3 to_player_direction = vec3normalizeR(vec3subvec3R(camera.pos,pos));
 	float to_player = getRayInfo(init,to_player_direction,pos).dst;
 	float sound_direction = atan2f(to_player_direction.x,to_player_direction.y) / M_PI;
-	sound_direction += camera_rd.dir.x / M_PI * 2.0f + 1.0f;
+	sound_direction += camera.dir.x / M_PI * 2.0f + 1.0f;
 	sound_direction = tFract((sound_direction + 1.0f) * 0.5f) * 2.0f - 1.0f;
 	sound_direction *= 1.0f - to_player_direction.z;
-	vec3 perpendicular = getLookAngle((vec2){camera_rd.dir.x + M_PI * 0.25f,camera_rd.dir.y});
+	vec3 perpendicular = getLookAngle((vec2){camera.dir.x + M_PI * 0.25f,camera.dir.y});
 	vec3mul(&perpendicular,5.0f);
-	float left_distance = vec3distance(pos,vec3subvec3R(camera_rd.pos,perpendicular));
-	float right_distance = vec3distance(pos,vec3addvec3R(camera_rd.pos,perpendicular));
+	float left_distance = vec3distance(pos,vec3subvec3R(camera.pos,perpendicular));
+	float right_distance = vec3distance(pos,vec3addvec3R(camera.pos,perpendicular));
 
 	float left_volume = 1.0f / sqrtf((left_distance + 1.0f + delay / 250.0f)) * volume;
 	float right_volume = 1.0f / sqrtf((right_distance + 1.0f + delay / 250.0f)) * volume;
@@ -146,8 +146,8 @@ void soundRay(SOUNDFILE sound,float* f_buffer,vec3 pos,ivec3 normal,float direct
 	left  = tMax(left,0);
 	right = tMax(right,0);
 
-	if(to_player == -1.0f || to_player > vec3distance(camera_rd.pos,pos)){
-		int sample_delay = delay + vec3distance(camera_rd.pos,pos) * 250.0f;
+	if(to_player == -1.0f || to_player > vec3distance(camera.pos,pos)){
+		int sample_delay = delay + vec3distance(camera.pos,pos) * 250.0f;
 		sample_delay &= ~1;
 
 		for(int i = 0;i < sound.sz / 2 - 1000;i += 2)

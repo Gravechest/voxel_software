@@ -16,7 +16,6 @@ typedef struct{
 	};
 	vec3 dir;
 	vec3 color;
-	air_t* air_ptr;
 	uint flags;
 	unsigned char type;
 	union{
@@ -30,6 +29,7 @@ typedef struct{
 	vec2 texture_size;
 	float size;
 	float ammount;
+	int next_entity;
 }entity_t;
 
 extern entity_t entity_array[];

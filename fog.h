@@ -10,5 +10,5 @@ typedef struct{
 }fog_t;
 
 fog_t calculateFogColor(vec3 pos);
-void calculateNodeLuminance(block_node_t* node,uint quality);
+void calculateNodeLuminance(node_t* node,uint quality);
 void calculateNodeLuminanceTree(uint node_ptr,uint quality);

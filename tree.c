@@ -5,7 +5,7 @@
 #include "fog.h"
 
 uint block_node_c;
-block_node_t* node_root;
+node_t* node_root;
 
 float rayNodeGetDistance(vec3 ray_pos,ivec3 pos,int depth,vec3 angle,int side){
 	vec3 block_pos;
@@ -23,7 +23,7 @@ float rayGetDistance(vec3 ray_pos,vec3 ray_dir){
 	node_hit_t result = treeRay(ray3Create(init.pos,ray_dir),init.node,ray_pos);
 	if(!result.node)
 		return 999999.0f;
-	block_node_t node_hit = node_root[result.node];
+	node_t node_hit = node_root[result.node];
 	return rayNodeGetDistance(ray_pos,node_hit.pos,node_hit.depth,ray_dir,result.side);
 }
 
@@ -59,13 +59,12 @@ ray3i_t ray3CreateI(vec3 pos,vec3 dir){
 	ray.square_pos.y = ray.pos.y >> FIXED_PRECISION;
 	ray.square_pos.z = ray.pos.z >> FIXED_PRECISION;
 
-
 	return ray;
 }
 
 uint getNodeFromPos(vec3 pos,uint depth){
 	vec3div(&pos,MAP_SIZE);
-	block_node_t* node = node_root;
+	node_t* node = node_root;
 	uint node_ptr = 0;
 	for(int i = 0;i < depth;i++){
 		uint child_ptr = node[node_ptr].child[(int)pos.z & 1][(int)pos.y & 1][(int)pos.x & 1];
@@ -80,9 +79,9 @@ uint getNodeFromPos(vec3 pos,uint depth){
 	return node_ptr;
 }
 
-block_node_t treeTraverse(vec3 pos){
+node_t treeTraverse(vec3 pos){
 	vec3div(&pos,MAP_SIZE);
-	block_node_t* node = node_root;
+	node_t* node = node_root;
 	uint node_ptr = 0;
 	for(;;){
 		uint child_ptr = node[node_ptr].child[(int)pos.z & 1][(int)pos.y & 1][(int)pos.x & 1];
@@ -95,7 +94,7 @@ block_node_t treeTraverse(vec3 pos){
 
 traverse_init_t initTraverse(vec3 pos){
 	vec3div(&pos,MAP_SIZE);
-	block_node_t* node = node_root;
+	node_t* node = node_root;
 	uint node_ptr = 0;
 	for(;;){
 		uint child_ptr = node[node_ptr].child[(int)pos.z & 1][(int)pos.y & 1][(int)pos.x & 1];
@@ -111,7 +110,7 @@ traverse_init_t initTraverse(vec3 pos){
 }
 
 block_t* insideBlock(vec3 pos){
-	block_node_t* node = node_root;
+	node_t* node = node_root;
 	uint node_ptr = 0;
 	vec3div(&pos,MAP_SIZE);
 	for(;;){
@@ -125,7 +124,7 @@ block_t* insideBlock(vec3 pos){
 }
 
 uint getNode(int x,int y,int z,int depth){
-	block_node_t* node = node_root;
+	node_t* node = node_root;
 	uint node_ptr = 0;
 	for(int i = depth - 1;i >= 0;i--){
 		ivec3 sub_coord = {x >> i & 1,y >> i & 1,z >> i & 1};
@@ -138,7 +137,7 @@ uint getNode(int x,int y,int z,int depth){
 }
 
 void removeVoxel(uint node_ptr){
-	block_node_t* node = &node_root[node_ptr];
+	node_t* node = &node_root[node_ptr];
 	if(node->block){
 		if(material_array[node->block->material].flags & MAT_LIQUID){
 
@@ -153,8 +152,9 @@ void removeVoxel(uint node_ptr){
 		MFREE(node->block);
 		node->block = 0;
 		node->air = MALLOC_ZERO(sizeof(air_t));
+		node->air->entity = -1;
 	}
-	else if(node_root[node_ptr].air){
+	else if(node->air){
 		MFREE(node->air);
 		node->air = 0;
 	}
@@ -166,7 +166,7 @@ void removeVoxel(uint node_ptr){
 			node->air = MALLOC_ZERO(sizeof(air_t));
 		}
 	}
-	if(node_root[node->parent].parent == -1)
+	if(!node_root[node->parent].depth)
 		return;
 	bool exit = false;
 	for(int i = 0;i < 8;i++){
@@ -183,7 +183,7 @@ static uint stack_ptr;
 static uint stack[240000];
 
 void removeSubVoxel(uint node_ptr){
-	block_node_t* node = &node_root[node_ptr];
+	node_t* node = &node_root[node_ptr];
 	if(node->block){
 		if(material_array[node->block->material].flags & MAT_LIQUID){
 
@@ -196,13 +196,13 @@ void removeSubVoxel(uint node_ptr){
 			}
 		}
 		MFREE(node->block);
-		memset(node,0,sizeof(block_node_t));
+		memset(node,0,sizeof(node_t));
 		stack[stack_ptr++] = node_ptr;
 		return;
 	}
 	if(node->air){
 		MFREE(node->air);
-		memset(node,0,sizeof(block_node_t));
+		memset(node,0,sizeof(node_t));
 		stack[stack_ptr++] = node_ptr;
 		return;
 	}
@@ -211,12 +211,12 @@ void removeSubVoxel(uint node_ptr){
 			continue;
 		removeSubVoxel(node->child_s[i]);
 	}
-	memset(node,0,sizeof(block_node_t));
+	memset(node,0,sizeof(node_t));
 	stack[stack_ptr++] = node_ptr;
 }
-#include <stdio.h>
+
 void setVoxel(uint x,uint y,uint z,uint depth,uint material,float ammount){
-	block_node_t* node = node_root;
+	node_t* node = node_root;
 	uint node_ptr = 0;
 	for(int i = depth - 1;i >= 0;i--){
 		ivec3 sub_coord = {x >> i & 1,y >> i & 1,z >> i & 1};
@@ -250,6 +250,7 @@ void setVoxel(uint x,uint y,uint z,uint depth,uint material,float ammount){
 				}
 			}
 			node[*node_new].air = MALLOC_ZERO(sizeof(air_t));
+			node[*node_new].air->entity = -1;
 		}
 		if(node[node_ptr].air){
 			MFREE(node[node_ptr].air);
@@ -301,8 +302,9 @@ void setVoxel(uint x,uint y,uint z,uint depth,uint material,float ammount){
 }
 
 void setVoxelSolid(uint x,uint y,uint z,uint depth,uint material){
-	block_node_t* node = node_root;
+	node_t* node = node_root;
 	uint node_ptr = 0;
+	/*
 	for(int j = 0;j < 6;j++){
 		uint dx = (uint[]){1,-1,0,0,0,0}[j];
 		uint dy = (uint[]){0,0,1,-1,0,0}[j];
@@ -318,6 +320,7 @@ void setVoxelSolid(uint x,uint y,uint z,uint depth,uint material){
 			}
 		}
 	}
+	*/
 	setVoxel(x,y,z,depth,material,0.0f);
 }
 
@@ -375,7 +378,7 @@ void ray3iItterate(ray3i_t* ray){
 }
 
 node_hit_t treeRayI(ray3i_t ray,uint node_ptr){
-	block_node_t* node = node_root;
+	node_t* node = node_root;
 	ray3iItterate(&ray);
 	for(;;){
 		uint combine = ray.square_pos.x | ray.square_pos.y | ray.square_pos.z;
@@ -422,7 +425,7 @@ node_hit_t treeRayI(ray3i_t ray,uint node_ptr){
 }
 
 uint traverseTreeItt(ray3i_t ray,uint node_ptr){
-	block_node_t* node = node_root;
+	node_t* node = node_root;
 	ray3iItterate(&ray);
 	uint i = 0;
 	for(;;){
@@ -478,7 +481,7 @@ fog_t treeRayFog(ray3_t ray,uint node_ptr,vec3 ray_pos,float max_distance){
 	fog_t fog = {0};
 	fog_t fog_buffer = {0};
 	float distance_buf = 0.0f;
-	block_node_t* node = node_root;
+	node_t* node = node_root;
 	for(;;){
 		uint combine = ray.square_pos.x | ray.square_pos.y | ray.square_pos.z;
 		if(combine > 1){
@@ -555,7 +558,7 @@ node_hit_t treeRayOnce(ray3_t ray,uint node_ptr,vec3 ray_pos){
 	bool small_z = ray.dir.z < 0.0001f && ray.dir.z > -0.0001f;
 	if(small_x || small_y || small_z)
 		return (node_hit_t){.node = 0,.side = ray.square_side};		
-	block_node_t* node = node_root;
+	node_t* node = node_root;
 	uint material_id = node->block->material;
 	ray3Itterate(&ray);
 	for(;;){
@@ -599,12 +602,12 @@ node_hit_t treeRay(ray3_t ray,uint node_ptr,vec3 ray_pos){
 	bool small_z = ray.dir.z < 0.0001f && ray.dir.z > -0.0001f;
 	if(small_x || small_y || small_z)
 		return (node_hit_t){.node = 0,.side = ray.square_side};		
-	block_node_t* node = node_root;
+	node_t* node = node_root;
 	ray3Itterate(&ray);
 	for(;;){
 		uint combine = ray.square_pos.x | ray.square_pos.y | ray.square_pos.z;
 		if(combine > 1){
-			if(node[node_ptr].parent == 0xffffffff)
+			if(!node[node_ptr].depth)
 				return (node_hit_t){.node = 0,.side = ray.square_side};
 			vec3mul(&ray.pos,0.5f);
 			vec3addvec3(&ray.pos,(vec3){node[node_ptr].pos.x & 1,node[node_ptr].pos.y & 1,node[node_ptr].pos.z & 1});

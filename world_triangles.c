@@ -139,7 +139,7 @@ bool readMask(vec3 point[8]){
 	return false;
 }
 
-void addSubSquare(vec3 block_pos,ivec3 axis,block_node_t node,float block_size,int side,float detail,float sqf_x,float sqf_y,float sub_size){
+void addSubSquare(vec3 block_pos,ivec3 axis,node_t node,float block_size,int side,float detail,float sqf_x,float sqf_y,float sub_size){
 	if(material_array[node.block->material].flags & (MAT_REFLECT | MAT_LIQUID | MAT_REFRACT))
 		detail *= 8.0f;
 	material_t material = material_array[node.block->material];
@@ -166,6 +166,8 @@ void addSubSquare(vec3 block_pos,ivec3 axis,block_node_t node,float block_size,i
 	static vec3 lighting_grid[4096];
 	static fog_t fog_color_cache[4096];
 
+	uint lm_size = GETLIGHTMAPSIZE(node.depth);
+
 	for(int i = 0;i < square_size + 1;i++){
 		for(int j = 0;j < square_size + 1;j++){
 			vec2 lm = {
@@ -173,8 +175,7 @@ void addSubSquare(vec3 block_pos,ivec3 axis,block_node_t node,float block_size,i
 				square_size_lm * i + sqf_y
 			};	
 			uint location = i * (square_size + 1) + j;
-			//fog_color_cache[location] = calculateFogColor(pos);
-			fog_color_cache[location].density = 1.0f;
+			fog_color_cache[location] = calculateFogColor(pos);
 			point_grid[location] = pos;
 			if(material.flags & MAT_LUMINANT){
 				lighting_grid[location] = material.luminance;
@@ -185,7 +186,7 @@ void addSubSquare(vec3 block_pos,ivec3 axis,block_node_t node,float block_size,i
 				normal.a[axis.x] = 0.0f;
 				normal.a[axis.y] = 0.0f;
 				normal = vec3normalizeR(normal);
-				vec3 ray_angle = vec3reflect(vec3normalizeR(vec3subvec3R(pos,camera_rd.pos)),normal);
+				vec3 ray_angle = vec3reflect(vec3normalizeR(vec3subvec3R(pos,camera.pos)),normal);
 
 				vec3 luminance = VEC3_ZERO;
 
@@ -211,7 +212,7 @@ void addSubSquare(vec3 block_pos,ivec3 axis,block_node_t node,float block_size,i
 				wave.x *= node.block->disturbance;
 				wave.y *= node.block->disturbance;
 				vec3 normal = vec3normalizeR((vec3){wave.x,wave.y,1.0f});
-				vec3 ray_angle = vec3normalizeR(vec3subvec3R(pos,camera_rd.pos));
+				vec3 ray_angle = vec3normalizeR(vec3subvec3R(pos,camera.pos));
 				vec3 luminance = VEC3_ZERO;
 
 				vec3 reflect = vec3reflect(ray_angle,normal);
@@ -224,7 +225,7 @@ void addSubSquare(vec3 block_pos,ivec3 axis,block_node_t node,float block_size,i
 			}
 			else if(material.flags & MAT_REFRACT){
 				vec3 luminance = VEC3_ZERO;
-				vec3 ray_angle = vec3normalizeR(vec3subvec3R(pos,camera_rd.pos));
+				vec3 ray_angle = vec3normalizeR(vec3subvec3R(pos,camera.pos));
 				vec3 normal = VEC3_ZERO;
 				normal.a[axis.z] = 1.0f;
 				vec3 ray_pos = pos;
@@ -234,7 +235,8 @@ void addSubSquare(vec3 block_pos,ivec3 axis,block_node_t node,float block_size,i
 				vec3mulvec3(&lighting_grid[location],material.luminance);
 			}
 			else{
-				lighting_grid[location] = getLuminance(node.block->side[side],lm,node.depth);
+				int lm_location = (int)(lm.x * (lm_size)) * (int)(lm_size + 1) + lm.y * (lm_size);
+				lighting_grid[location] = node.block->side[side].luminance_p[lm_location];
 			}
 			lighting_grid[location] = (vec3){lighting_grid[location].b,lighting_grid[location].g,lighting_grid[location].r};
 			pos.a[axis.x] += block_size_sub;
@@ -245,8 +247,6 @@ void addSubSquare(vec3 block_pos,ivec3 axis,block_node_t node,float block_size,i
 	
 	float x = block_pos.a[axis.x];
 	float y = block_pos.a[axis.y];
-
-	float lm_size = GETLIGHTMAPSIZE(node.depth);
 
 	for(int i = 0;i < square_size;i++){
 		for(int j = 0;j < square_size;j++){
@@ -360,7 +360,7 @@ bool inScreenSpace(vec3* point,uint ammount){
 
 #define LOD_NORMAL (1800.0f * 2.0f)
 
-void test(block_node_t node,vec3 block_pos,ivec3 axis,float block_size,int side,float x,float y,float size,uint depth){
+void test(node_t node,vec3 block_pos,ivec3 axis,float block_size,int side,float x,float y,float size,uint depth){
 	if(block_size < 0.05f)
 		return;
 	vec3 point[4];
@@ -415,7 +415,7 @@ void test(block_node_t node,vec3 block_pos,ivec3 axis,float block_size,int side,
 	offset.a[axis.x] = block_size * 0.5f;
 	offset.a[axis.y] = block_size * 0.5f;
 	offset.a[axis.z] = 0.0f;
-	vec3 rel_pos = vec3subvec3R(vec3addvec3R(block_pos,offset),camera_rd.pos);
+	vec3 rel_pos = vec3subvec3R(vec3addvec3R(block_pos,offset),camera.pos);
 	vec3 dir = vec3normalizeR(rel_pos);
 	float detail = tMaxf(min_distance,1.0f);
 	
@@ -477,8 +477,6 @@ bool cubeInScreenSpace(vec3 point[8]){
 void gatherEntityTriangles(entity_t* entity,air_t* air){
 	if(!entity->alive)
 		return;
-	if(entity->air_ptr != air)
-		return;
 	vec3 point = pointToScreenZ(entity->pos);
 	if(!point.z)
 		return;
@@ -500,9 +498,7 @@ void gatherEntityTriangles(entity_t* entity,air_t* air){
 	texture_coords[2] = (vec2){entity->texture_pos.x,entity->texture_pos.y + entity->texture_size.y};
 	texture_coords[3] = (vec2){entity->texture_pos.x + entity->texture_size.x,entity->texture_pos.y + entity->texture_size.y};
 
-	if(!entity->air_ptr)
-		return;
-	vec3 luminance = vec3mulvec3R(entity->color,entity->air_ptr->luminance);
+	vec3 luminance = vec3mulvec3R(entity->color,air->luminance);
 	triangles[triangle_count++] = (triangles_t){screen_point[0],texture_coords[0],luminance,fog.density,fog.luminance};
 	triangles[triangle_count++] = (triangles_t){screen_point[1],texture_coords[1],luminance,fog.density,fog.luminance};
 	triangles[triangle_count++] = (triangles_t){screen_point[3],texture_coords[3],luminance,fog.density,fog.luminance};
@@ -513,7 +509,7 @@ void gatherEntityTriangles(entity_t* entity,air_t* air){
 }
 
 void sceneGatherTriangles(uint node_ptr){
-	block_node_t node = node_root[node_ptr];
+	node_t node = node_root[node_ptr];
 	if(node.air)
 		return;
 	float block_size = (float)((1 << 20) >> node.depth) * MAP_SIZE_INV;
@@ -551,7 +547,7 @@ void sceneGatherTriangles(uint node_ptr){
 			node.pos.y * block_size,
 			node.pos.z * block_size
 		};
-		vec3 rel_pos = vec3subvec3R(camera_rd.pos,pos);
+		vec3 rel_pos = vec3subvec3R(camera.pos,pos);
 		ivec3 i_pos = {
 			rel_pos.x / block_size * 2.0f,
 			rel_pos.y / block_size * 2.0f,
@@ -570,13 +566,17 @@ void sceneGatherTriangles(uint node_ptr){
 		uint order_id = i_pos.x + i_pos.y * 2 + i_pos.z * 4;
 		for(int i = 0;i < 8;i++){
 			uint index = order[order_id][i];
+			/*
 			if(node_root[node.child_s[index]].air){
-				if(!node_root[node.child_s[index]].air->has_entity)
-					continue;
-				for(int i = 0;i < ENTITY_AMMOUNT;i++)
-					gatherEntityTriangles(&entity_array[i],node_root[node.child_s[index]].air);
-				continue;
+				int entity_index = node_root[node.child_s[index]].air->entity;
+				while(entity_index != -1){
+					entity_t* entity = &entity_array[node_root[node.child_s[index]].air->entity];
+					gatherEntityTriangles(entity,node_root[node.child_s[index]].air);
+					entity_index = entity->next_entity;
+				}
+				node_root[node.child_s[index]].air->entity = -1;
 			}
+			*/
 			sceneGatherTriangles(node.child_s[index]);
 		}
 		return;
@@ -585,7 +585,7 @@ void sceneGatherTriangles(uint node_ptr){
 	if(!inScreenSpace(point,8))
 		return;
 		
-	vec3 rel_pos = vec3subvec3R(block_pos,camera_rd.pos);
+	vec3 rel_pos = vec3subvec3R(block_pos,camera.pos);
 
 	float block_size_sub = block_size / GETLIGHTMAPSIZE(node.depth);
 

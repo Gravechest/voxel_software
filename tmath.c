@@ -61,11 +61,11 @@ int tMin(int p,int p2){
 }
 
 int tHash(int x){
-	x += (x << 10);
-	x ^= (x >> 6);
-	x += (x << 3);
-	x ^= (x >> 11);
-	x += (x << 15);
+	x += x << 10;
+	x ^= x >> 6;
+	x += x << 3;
+	x ^= x >> 11;
+	x += x << 15;
 	return x;
 }
 

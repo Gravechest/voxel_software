@@ -14,7 +14,7 @@ static vec2 lookDirectionTable[6] = {
 	{0.0f,M_PI * 0.5f}
 };
 
-void calculateNodeLuminance(block_node_t* node,uint quality){
+void calculateNodeLuminance(node_t* node,uint quality){
 	vec3 s_color = VEC3_ZERO;
 	float block_size = (float)((1 << 20) >> node->depth) * MAP_SIZE_INV;
 	vec3 node_pos = {node->pos.x,node->pos.y,node->pos.z};
@@ -57,7 +57,7 @@ void calculateNodeLuminance(block_node_t* node,uint quality){
 }
 
 void calculateNodeLuminanceTree(uint node_ptr,uint quality){
-	block_node_t* node = &node_root[node_ptr];
+	node_t* node = &node_root[node_ptr];
 	if(node->block)
 		return;
 	if(node->air){
@@ -69,10 +69,10 @@ void calculateNodeLuminanceTree(uint node_ptr,uint quality){
 }
 
 fog_t calculateFogColor(vec3 pos){
-	vec3 ray_angle = vec3normalizeR(vec3subvec3R(camera_rd.pos,pos));
+	vec3 ray_angle = vec3normalizeR(vec3subvec3R(camera.pos,pos));
 	vec3 ray_pos = pos; 
 	vec3addvec3(&ray_pos,vec3mulR(ray_angle,0.01f));
-	float total_distance = vec3distance(ray_pos,camera_rd.pos);
+	float total_distance = vec3distance(ray_pos,camera.pos);
 	traverse_init_t init = initTraverse(ray_pos);
 	fog_t fog = treeRayFog(ray3Create(init.pos,ray_angle),init.node,ray_pos,total_distance);
 	if(!fog.density){

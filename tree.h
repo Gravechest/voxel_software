@@ -43,7 +43,7 @@ typedef struct{
 	uint node;
 }traverse_init_t;
 
-extern block_node_t* node_root;
+extern node_t* node_root;
 extern uint block_node_c;
 
 traverse_init_t initTraverse(vec3 pos);
@@ -59,6 +59,6 @@ uint getNodeFromPos(vec3 pos,uint depth);
 ray3i_t ray3CreateI(vec3 pos,vec3 dir);
 float rayNodeGetDistance(vec3 ray_pos,ivec3 pos,int depth,vec3 angle,int side);
 float rayGetDistance(vec3 ray_pos,vec3 ray_dir);
-block_node_t treeTraverse(vec3 pos);
+node_t treeTraverse(vec3 pos);
 fog_t treeRayFog(ray3_t ray,uint node_ptr,vec3 ray_pos,float max_distance);
 node_hit_t treeRayOnce(ray3_t ray,uint node_ptr,vec3 ray_pos);

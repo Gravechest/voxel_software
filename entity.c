@@ -28,7 +28,7 @@ void entityBehavior(entity_t* entity){
 	}
 	switch(entity->type){
 	case ENTITY_WATER:
-		block_node_t node = treeTraverse(entity->pos);
+		node_t node = treeTraverse(entity->pos);
 		if(node.block){
 			if(material_array[node.block->material].flags & MAT_LIQUID){
 				float block_size = (float)((1 << 20) >> node.depth) * MAP_SIZE_INV;
@@ -51,7 +51,7 @@ void entityBehavior(entity_t* entity){
 			}
 			vec3subvec3(&entity->pos,entity->dir);
 		water_new:
-			block_node_t node = treeTraverse(entity->pos);
+			node_t node = treeTraverse(entity->pos);
 			float ammount;
 			if(entity->block_depth > node.depth)
 				ammount = entity->ammount / (1 << (entity->block_depth - node.depth) * 2);
@@ -74,7 +74,7 @@ void entityBehavior(entity_t* entity){
 		break;
 	case 2:
 		entity->dir.z -= MV_GRAVITY;
-		float distance_to_player = vec3distance(camera_rd.pos,entity->pos);
+		float distance_to_player = vec3distance(camera.pos,entity->pos);
 		if(distance_to_player < 0.5f){
 			entity->alive = false;
 			for(int i = 2;i < 8;i++){
@@ -92,7 +92,7 @@ void entityBehavior(entity_t* entity){
 		}
 		if(distance_to_player < 5.0f){
 			float pull = 0.03f / distance_to_player;
-			vec3 to_player = vec3normalizeR(vec3subvec3R(camera_rd.pos,entity->pos));
+			vec3 to_player = vec3normalizeR(vec3subvec3R(camera.pos,entity->pos));
 			vec3addvec3(&entity->dir,vec3mulR(to_player,pull));
 		}
 		if(node_root[initTraverse(entity->pos).node].block){
@@ -128,9 +128,6 @@ void entityTick(uint tick_ammount){
 			continue;
 		if(entity_array[i].flags & ENTITY_LUMINANT)
 			calculateDynamicLight(entity_array[i].pos,0,10.0f,vec3negR(entity_array[i].color));
-		if(!entity_array[i].air_ptr)
-			continue;
-		entity_array[i].air_ptr->has_entity = false;
 	}
 	for(int j = 0;j < tick_ammount;j++){
 		for(int i = 0;i < ENTITY_AMMOUNT;i++){
@@ -138,28 +135,34 @@ void entityTick(uint tick_ammount){
 		}
 	}
 	for(int i = 0;i < ENTITY_AMMOUNT;i++){
-		block_node_t node = treeTraverse(entity_array[i].pos);
+		if(!entity_array[i].alive)
+			continue;
+		node_t node = treeTraverse(entity_array[i].pos);
 		if(!node.air)
 			continue;
-		entity_array[i].air_ptr = node.air;
+		if(node.air->entity != -1)
+			entity_array[i].next_entity = node.air->entity;
+		else
+			entity_array[i].next_entity = -1;
+		node.air->entity = i;
 	}
 }
 
 void trySpawnEnemy(){
 	if(TRND1 < 0.9f)
 		return;
-	vec3 pos = vec3addvec3R(camera_rd.pos,VEC3_SINGLE((TRND1 - 0.5f) * 30.0f));
+	vec3 pos = vec3addvec3R(camera.pos,VEC3_SINGLE((TRND1 - 0.5f) * 30.0f));
 	traverse_init_t init = initTraverse(pos);
-	block_node_t node = node_root[init.node];
+	node_t node = node_root[init.node];
 	if(node.block)
 		return;
 	vec3 dir = {0.01f,0.01f,-1.0f};
 	float distance = rayGetDistance(pos,dir);
 	if(distance > 1.0f)
 		return;
-	dir = vec3normalizeR(vec3subvec3R(pos,camera_rd.pos));
+	dir = vec3normalizeR(vec3subvec3R(pos,camera.pos));
 	distance = rayGetDistance(pos,dir);
-	if(distance > vec3distance(pos,camera_rd.pos))
+	if(distance > vec3distance(pos,camera.pos))
 		return;
 	entity_t* entity = getNewEntity();
 	entity->type = 3;

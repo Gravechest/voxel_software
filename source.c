@@ -45,8 +45,6 @@ vram_t vram;
 camera_t camera = {.pos.z = MAP_SIZE + 2.0f,.pos.x = MAP_SIZE + 0.5f,.pos.y = MAP_SIZE + 0.5f};
 float camera_exposure = 1.0f;
 
-camera_t camera_rd;
-
 int edit_depth = 5;
 
 volatile bool is_rendering;
@@ -63,7 +61,7 @@ volatile char frame_ready;
 bool setting_smooth_lighting = true;
 bool setting_fly = false;
 
-bool player_gamemode;
+bool player_gamemode = GAMEMODE_CREATIVE;
 
 texture_t texture[16];
 
@@ -105,6 +103,12 @@ material_t material_array[] = {
 		.luminance = {0.9f,0.9f,0.9f},
 		.texture_pos = {0.0f,0.0f},
 		.texture_size = {0.01f,0.01f}
+	},
+	{
+		.luminance = {0.1f,0.6f,0.9f},
+		.texture_pos = {0.0f,0.0f},
+		.texture_size = {0.01f,0.01f},
+		.flags = MAT_POWDER
 	},
 	{
 		.luminance = {1.0f,1.0f,1.0f},
@@ -308,25 +312,25 @@ vec3 getRayAngle(uint x,uint y){
 	float pxX = (((float)y * 2.0f * (1.0f / WND_RESOLUTION.y)) - 1.0f);
 	float pixelOffsetY = pxY * (1.0f / (FOV.x / WND_RESOLUTION.x * 2.0f));
 	float pixelOffsetX = pxX * (1.0f / (FOV.y / WND_RESOLUTION.y * 2.0f));
-	ray_ang.x = camera_rd.tri.x * camera_rd.tri.z;
-	ray_ang.y = camera_rd.tri.y * camera_rd.tri.z;
-	ray_ang.x -= camera_rd.tri.x * camera_rd.tri.w * pixelOffsetY;
-	ray_ang.y -= camera_rd.tri.y * camera_rd.tri.w * pixelOffsetY;
-	ray_ang.x -= camera_rd.tri.y * pixelOffsetX;
-	ray_ang.y += camera_rd.tri.x * pixelOffsetX;
-	ray_ang.z = camera_rd.tri.w + camera_rd.tri.z * pixelOffsetY;
+	ray_ang.x = camera.tri.x * camera.tri.z;
+	ray_ang.y = camera.tri.y * camera.tri.z;
+	ray_ang.x -= camera.tri.x * camera.tri.w * pixelOffsetY;
+	ray_ang.y -= camera.tri.y * camera.tri.w * pixelOffsetY;
+	ray_ang.x -= camera.tri.y * pixelOffsetX;
+	ray_ang.y += camera.tri.x * pixelOffsetX;
+	ray_ang.z = camera.tri.w + camera.tri.z * pixelOffsetY;
 	return ray_ang;
 }
 
 vec3 pointToScreenRenderer(vec3 point){
 	vec3 screen_point;
-	vec3 pos = vec3subvec3R(point,camera_rd.pos);
+	vec3 pos = vec3subvec3R(point,camera.pos);
 	float temp;
-	temp  = pos.y * camera_rd.tri.x - pos.x * camera_rd.tri.y;
-	pos.x = pos.y * camera_rd.tri.y + pos.x * camera_rd.tri.x;
+	temp  = pos.y * camera.tri.x - pos.x * camera.tri.y;
+	pos.x = pos.y * camera.tri.y + pos.x * camera.tri.x;
 	pos.y = temp;
-	temp  = pos.z * camera_rd.tri.z - pos.x * camera_rd.tri.w;
-	pos.x = pos.z * camera_rd.tri.w + pos.x * camera_rd.tri.z;
+	temp  = pos.z * camera.tri.z - pos.x * camera.tri.w;
+	pos.x = pos.z * camera.tri.w + pos.x * camera.tri.z;
 	pos.z = temp;
 	
 	if(pos.x <= 0.0f)
@@ -340,13 +344,13 @@ vec3 pointToScreenRenderer(vec3 point){
 
 vec3 pointToScreenZ(vec3 point){
 	vec3 screen_point;
-	vec3 pos = vec3subvec3R(point,camera_rd.pos);
+	vec3 pos = vec3subvec3R(point,camera.pos);
 	float temp;
-	temp  = pos.y * camera_rd.tri.x - pos.x * camera_rd.tri.y;
-	pos.x = pos.y * camera_rd.tri.y + pos.x * camera_rd.tri.x;
+	temp  = pos.y * camera.tri.x - pos.x * camera.tri.y;
+	pos.x = pos.y * camera.tri.y + pos.x * camera.tri.x;
 	pos.y = temp;
-	temp  = pos.z * camera_rd.tri.z - pos.x * camera_rd.tri.w;
-	pos.x = pos.z * camera_rd.tri.w + pos.x * camera_rd.tri.z;
+	temp  = pos.z * camera.tri.z - pos.x * camera.tri.w;
+	pos.x = pos.z * camera.tri.w + pos.x * camera.tri.z;
 	pos.z = temp;
 	
 	if(pos.x <= 0.0f)
@@ -360,7 +364,7 @@ vec3 pointToScreenZ(vec3 point){
 
 vec2 pointToScreen(vec3 point){
 	vec2 screen_point;
-	vec3 pos = vec3subvec3R(point,camera_rd.pos);
+	vec3 pos = vec3subvec3R(point,camera.pos);
 	float temp;
 	temp  = pos.y * camera.tri.x - pos.x * camera.tri.y;
 	pos.x = pos.y * camera.tri.y + pos.x * camera.tri.x;
@@ -448,7 +452,7 @@ void rayRemoveVoxel(vec3 ray_pos,vec3 direction,int remove_depth){
 	node_hit_t result = treeRay(ray3Create(init.pos,direction),init.node,ray_pos);
 	if(!result.node)
 		return;
-	block_node_t node = node_root[result.node];
+	node_t node = node_root[result.node];
 	uint block_depth = node.depth;
 	ivec3 block_pos_i = node.pos;
 	
@@ -503,8 +507,8 @@ void playerShoot(){
 		vec2 rnd_dir = (vec2){TRND1 - 0.5f,TRND1 - 0.5f};
 		vec3mul(&rnd_dir,0.1f);
 		for(int i = 0;i < 10;i++){
-			vec3 dir = getLookAngle(vec2addvec2R(camera_rd.dir,rnd_dir));
-			rayRemoveVoxel(camera_rd.pos,dir,LM_MAXDEPTH + 4);
+			vec3 dir = getLookAngle(vec2addvec2R(camera.dir,rnd_dir));
+			rayRemoveVoxel(camera.pos,dir,LM_MAXDEPTH + 4);
 		}
 	}
 }
@@ -521,7 +525,7 @@ void playerAddBlock(){
 	node_hit_t result = treeRay(ray3Create(init.pos,dir),init.node,camera.pos);
 	if(!result.node)
 		return;
-	block_node_t node = node_root[result.node];
+	node_t node = node_root[result.node];
 	block_t* block = node.block;
 	ivec3 block_pos_i = node.pos;
 	uint block_depth = node.depth;
@@ -646,7 +650,7 @@ void playerRemoveBlock(){
 	vec3 dir = getLookAngle(camera.dir);
 	switch(player_gamemode){
 	case GAMEMODE_CREATIVE:
-		rayRemoveVoxel(camera_rd.pos,dir,edit_depth);
+		rayRemoveVoxel(camera.pos,dir,edit_depth);
 		break;
 	case GAMEMODE_SURVIVAL:
 		break;
@@ -657,7 +661,7 @@ static bool r_click;
 static bool l_click;
 
 void fillHoldStructure(hold_structure_t* hold,uint node_ptr){
-	block_node_t node = node_root[node_ptr];
+	node_t node = node_root[node_ptr];
 	if(node.block){
 		hold->is_filled = true;
 		hold->block_id = node.block->material;
@@ -691,17 +695,15 @@ void executeCommand(){
 		player_gamemode ^= true;
 	}
 	if(!strcmp(console_buffer,"O2")){
-		block_node_t node = treeTraverse(camera_rd.pos);
+		node_t node = treeTraverse(camera.pos);
 		if(node.air){
 			node.air->o2 += 0.1f;
 		}
 	}
-	if(!strcmp(console_buffer,"QUIT")){
+	if(!strcmp(console_buffer,"QUIT"))
 		ExitProcess(0);
-	}
-	if(!strcmp(console_buffer,"FLY")){
+	if(!strcmp(console_buffer,"FLY"))
 		setting_fly ^= true;
-	}
 	memset(console_buffer,0,CONSOLE_BUFFER_SIZE);
 	console_cursor = 0;
 }
@@ -747,7 +749,7 @@ int proc(HWND hwnd,UINT msg,WPARAM wParam,LPARAM lParam){
 			SetCursorPos(WND_SIZE.x / 2,WND_SIZE.y / 2);
 			break;
 		case VK_F5:
-			spawnEntity(camera_rd.pos,vec3mulR(getLookAngle(camera_rd.dir),0.04f),0);
+			spawnEntity(camera.pos,vec3mulR(getLookAngle(camera.dir),0.04f),0);
 			break;
 		case VK_F8:
 			test_bool = 0;
@@ -790,14 +792,14 @@ int proc(HWND hwnd,UINT msg,WPARAM wParam,LPARAM lParam){
 			block_type = node_root[result.node].block->material;
 			break;
 		}
-		block_node_t node = node_root[result.node];
+		node_t node = node_root[result.node];
 		float block_size = (float)((1 << 20) >> node.depth) * MAP_SIZE_INV;
 		vec3 block_pos = vec3mulR((vec3){node.pos.x,node.pos.y,node.pos.z},block_size);
 		plane_t plane = getPlane(block_pos,dir,result.side,block_size);
-		vec3 plane_pos = vec3subvec3R(plane.pos,camera_rd.pos);
+		vec3 plane_pos = vec3subvec3R(plane.pos,camera.pos);
 		int side = result.side * 2 + (dir.a[result.side] < 0.0f);
 		float distance = rayIntersectPlane(plane_pos,dir,plane.normal);
-		vec3 pos = vec3addvec3R(camera_rd.pos,vec3mulR(dir,distance - 0.01f));
+		vec3 pos = vec3addvec3R(camera.pos,vec3mulR(dir,distance - 0.01f));
 		uint node_select = getNodeFromPos(pos,edit_depth);
 		if(!node_select)
 			break;
@@ -848,34 +850,6 @@ int proc(HWND hwnd,UINT msg,WPARAM wParam,LPARAM lParam){
 	}
 	return DefWindowProcA(hwnd,msg,wParam,lParam);
 }
-
-vec3 getLuminance(block_side_t side,vec2 uv,uint depth){
-	if(!side.luminance_p)
-		return VEC3_ZERO;
-	uint lm_size = GETLIGHTMAPSIZE(depth);
-
-	vec2 fract_pos = {
-		tFractUnsigned(uv.x * lm_size + 0.5f),
-		tFractUnsigned(uv.y * lm_size + 0.5f)
-	};
-
-	uint lm_offset_x = uv.x * lm_size + 0.5f; 
-	uint lm_offset_y = uv.y * lm_size + 0.5f;
-
-	uint location = lm_offset_x * (lm_size + 2) + lm_offset_y;
-
-	vec3 lm_1 = side.luminance_p[location];
-	vec3 lm_2 = side.luminance_p[location + 1];
-	vec3 lm_3 = side.luminance_p[location + (lm_size + 2)];
-	vec3 lm_4 = side.luminance_p[location + (lm_size + 2) + 1];
-
-	vec3 mix_1 = vec3mixR(lm_1,lm_3,fract_pos.x);
-	vec3 mix_2 = vec3mixR(lm_2,lm_4,fract_pos.x);
-
-	return vec3mixR(mix_1,mix_2,fract_pos.y);
-}
-
-volatile uint draw_pool;
 
 void drawBresenhamLine(int x1,int y1,int x2,int y2,pixel_t color){
     int dx = tAbs(x2 - x1);
@@ -1008,11 +982,11 @@ void drawLine(vec2 pos_1,vec2 pos_2,pixel_t color){
 
 void generateBlockOutline(){
 	vec3 look_direction = getLookAngle(camera.dir);
-	traverse_init_t init = initTraverse(camera_rd.pos);
-	node_hit_t result = treeRay(ray3Create(init.pos,look_direction),init.node,camera_rd.pos);
+	traverse_init_t init = initTraverse(camera.pos);
+	node_hit_t result = treeRay(ray3Create(init.pos,look_direction),init.node,camera.pos);
 	if(!result.node)
 		return;
-	block_node_t node = node_root[result.node];
+	node_t node = node_root[result.node];
 	block_t* block = node.block;
 	float edit_size = (float)MAP_SIZE / (1 << edit_depth) * 2.0f;
 
@@ -1086,15 +1060,15 @@ void guiRectangle(vec2 pos,vec2 size,vec3 color){
 }
 
 void castVisibilityRays(){
-	traverse_init_t init = initTraverse(camera_rd.pos);
+	traverse_init_t init = initTraverse(camera.pos);
 	static uint counter;
 	for(int x = counter / 16;x < WND_RESOLUTION.x;x += 16){
 		for(int y = counter % 16;y < WND_RESOLUTION.y;y += 16){
 			vec3 ray_angle = getRayAngle(x,y);
-			node_hit_t hit = treeRay(ray3Create(init.pos,ray_angle),init.node,camera_rd.pos);
+			node_hit_t hit = treeRay(ray3Create(init.pos,ray_angle),init.node,camera.pos);
 			if(!hit.node)
 				continue;
-			block_node_t* node = &node_root[hit.node];
+			node_t* node = &node_root[hit.node];
 			uint side = hit.side * 2 + (ray_angle.a[hit.side] < 0.0f);
 			if(!node->block)
 				continue;
@@ -1203,12 +1177,12 @@ vec3 getBlockSelectLight(vec2 direction){
 	float weight_total = 0.0f;
 	direction.x -= M_PI * 0.5f - M_PI * 0.5f / BLOCK_SELECT_LIGHT_QUALITY;
 	direction.y -= M_PI * 0.5f - M_PI * 0.5f / BLOCK_SELECT_LIGHT_QUALITY;
-	traverse_init_t init = initTraverse(camera_rd.pos);
+	traverse_init_t init = initTraverse(camera.pos);
 	for(int i = 0;i < BLOCK_SELECT_LIGHT_QUALITY;i++){
 		for(int j = 0;j < BLOCK_SELECT_LIGHT_QUALITY;j++){
 			vec3 angle = getLookAngle(direction);
 			float weight = tAbsf(vec3dotR(angle,normal));
-			vec3 luminance = rayGetLuminanceDir(init.pos,direction,init.node,camera_rd.pos);
+			vec3 luminance = rayGetLuminanceDir(init.pos,direction,init.node,camera.pos);
 			vec3mul(&luminance,weight);
 			vec3addvec3(&s_color,luminance);
 			weight_total += weight;
@@ -1223,14 +1197,14 @@ vec3 getBlockSelectLight(vec2 direction){
 
 void drawBlockSelect(vec3 block_pos,vec3 luminance[3],float block_size,uint material_id){
 	material_t material = material_array[material_id];
-	vec2 x_direction = vec2addvec2R((vec2){camera_rd.dir.x + 0.1f,0.1f},(vec2){M_PI * 0.5f,0.0f});
-	vec2 y_direction = vec2addvec2R((vec2){camera_rd.dir.x + 0.1f,camera_rd.dir.y + 0.1f},(vec2){0.0f,M_PI * 0.5f});
-	vec2 z_direction = vec2addvec2R((vec2){camera_rd.dir.x + 0.1f,camera_rd.dir.y + 0.1f},(vec2){0.0f,0.0f});
+	vec2 x_direction = vec2addvec2R((vec2){camera.dir.x + 0.1f,0.1f},(vec2){M_PI * 0.5f,0.0f});
+	vec2 y_direction = vec2addvec2R((vec2){camera.dir.x + 0.1f,camera.dir.y + 0.1f},(vec2){0.0f,M_PI * 0.5f});
+	vec2 z_direction = vec2addvec2R((vec2){camera.dir.x + 0.1f,camera.dir.y + 0.1f},(vec2){0.0f,0.0f});
 	vec3 y_angle = getLookAngle(x_direction);
 	vec3 x_angle = getLookAngle(y_direction);
 	vec3 z_angle = getLookAngle(z_direction);
 	
-	vec3 pos = camera_rd.pos;
+	vec3 pos = camera.pos;
 	vec3addvec3(&pos,vec3mulR(x_angle,-2.5f + block_pos.x));
 	vec3addvec3(&pos,vec3mulR(y_angle, 1.5f + block_pos.y));
 	vec3addvec3(&pos,vec3mulR(z_angle, 2.5f + block_pos.z));
@@ -1310,9 +1284,9 @@ void genBlockSelect(){
 		luminance[2] = (vec3){material.luminance.b,material.luminance.g,material.luminance.r};
 	}
 	else{
-		luminance[0] = getBlockSelectLight((vec2){camera_rd.dir.x + M_PI,camera_rd.dir.y});
-		luminance[1] = getBlockSelectLight((vec2){camera_rd.dir.x - M_PI * 0.5f,camera_rd.dir.y});
-		luminance[2] = getBlockSelectLight((vec2){camera_rd.dir.x,camera_rd.dir.y + M_PI * 0.5f});
+		luminance[0] = getBlockSelectLight((vec2){camera.dir.x + M_PI,camera.dir.y});
+		luminance[1] = getBlockSelectLight((vec2){camera.dir.x - M_PI * 0.5f,camera.dir.y});
+		luminance[2] = getBlockSelectLight((vec2){camera.dir.x,camera.dir.y + M_PI * 0.5f});
 	}
 	switch(player_gamemode){
 	case GAMEMODE_CREATIVE:
@@ -1363,12 +1337,12 @@ void genBlockSelect(){
 void mouseDown(){
 	if(player_gamemode != GAMEMODE_SURVIVAL)
 		return;
-	vec3 dir = getLookAngle(camera_rd.dir);
+	vec3 dir = getLookAngle(camera.dir);
 	traverse_init_t init = initTraverse(camera.pos);
-	node_hit_t result = treeRay(ray3Create(init.pos,dir),init.node,camera_rd.pos);
+	node_hit_t result = treeRay(ray3Create(init.pos,dir),init.node,camera.pos);
 	if(!result.node)
 		return;
-	block_node_t node = node_root[result.node];
+	node_t node = node_root[result.node];
 	material_t material = material_array[node.block->material];
 	if(block_break_ptr != result.node){
 		block_break_progress = 0.0f;
@@ -1378,8 +1352,8 @@ void mouseDown(){
 	block_break_progress += 0.01f * material.hardness * (1 << tMax((node.depth - 9) * 3,0));
 	if(block_break_progress < 1.0f)
 		return;
-	float distance = rayNodeGetDistance(camera_rd.pos,node.pos,node.depth,dir,result.side);
-	vec3 spawn_pos = vec3addvec3R(camera_rd.pos,vec3mulR(dir,distance));
+	float distance = rayNodeGetDistance(camera.pos,node.pos,node.depth,dir,result.side);
+	vec3 spawn_pos = vec3addvec3R(camera.pos,vec3mulR(dir,distance));
 	block_break_progress = 0.0f;
 	if(node.depth <= 12){
 		entity_t* entity = getNewEntity();
@@ -1393,7 +1367,7 @@ void mouseDown(){
 		entity->size = 0.3f;
 		entity->block_ammount = 1 << tMax((12 - tMax(node.depth,9)) * 3,0);
 	}
-	rayRemoveVoxel(camera_rd.pos,dir,9);
+	rayRemoveVoxel(camera.pos,dir,9);
 }
 
 void guiFrame(vec2 pos,vec2 size,vec3 color,float thickness){
@@ -1468,8 +1442,8 @@ void guiInventoryContent(inventoryslot_t* slot,vec2 pos,vec2 size){
 	triangles[triangle_count++] = (triangles_t){pos.x + size.x,pos.y + size.y,1.0f,texture_coord[3],1.0f,1.0f,1.0f,1.0f};
 }
 
-void liquidUnderSub(uint node_ptr,block_node_t* liquid){
-	block_node_t* node = &node_root[node_ptr];
+void liquidUnderSub(uint node_ptr,node_t* liquid){
+	node_t* node = &node_root[node_ptr];
 	if(node->air){
 		float ammount = liquid->block->ammount;
 		liquid->block->ammount = 0.0f;
@@ -1508,7 +1482,7 @@ void liquidUnderSub(uint node_ptr,block_node_t* liquid){
 void liquidUnder(int x,int y,int z,uint depth){
 	if(z - 1 < 0)
 		return;
-	block_node_t* liquid = &node_root[getNode(x,y,z,depth)];
+	node_t* liquid = &node_root[getNode(x,y,z,depth)];
 	uint node = getNode(x,y,z - 1,depth);
 	if(node_root[node].block){
 		if(!(material_array[node_root[node].block->material].flags & MAT_LIQUID))
@@ -1531,13 +1505,12 @@ void liquidUnder(int x,int y,int z,uint depth){
 		setVoxel(x,y,z - 1,depth,liquid->block->material,ammount);
 		return;
 	}
-	
 	for(int i = 4;i < 8;i++)
 		liquidUnderSub(node_root[node].child_s[i],liquid);
 }
 
-void liquidSideSub(uint node_ptr,block_node_t* liquid,uint* neighbour,float level,float dx,float dy){
-	block_node_t* node = &node_root[node_ptr];
+void liquidSideSub(uint node_ptr,node_t* liquid,uint* neighbour,float level,float dx,float dy){
+	node_t* node = &node_root[node_ptr];
 	int depth_difference = node->depth - liquid->depth;
 	float cube_volume = 1 << depth_difference * 2;
 	float square_volume = 1 << depth_difference;
@@ -1607,8 +1580,8 @@ void liquidSide(uint x,uint y,uint z,uint depth,uint side,uint* neighbour){
 	int dx = side >> 1 == VEC3_X ? side & 1 ? -1 : 1 : 0;
 	int dy = side >> 1 == VEC3_Y ? side & 1 ? -1 : 1 : 0;
 	int dz = side >> 1 == VEC3_Z ? side & 1 ? -1 : 1 : 0;
-	block_node_t* node   = &node_root[getNode(x + dx,y + dy,z + dz,depth)];
-	block_node_t* liquid = &node_root[getNode(x,y,z,depth)];
+	node_t* node   = &node_root[getNode(x + dx,y + dy,z + dz,depth)];
+	node_t* liquid = &node_root[getNode(x,y,z,depth)];
 	int depth_difference = liquid->depth - node->depth;
 	float cube_volume = 1 << depth_difference * 2;
 	float square_volume = 1 << depth_difference;
@@ -1628,7 +1601,6 @@ void liquidSide(uint x,uint y,uint z,uint depth,uint side,uint* neighbour){
 		node->block->ammount_buffer += n;
 		return;
 	}
-	
 	if(node->air){
 		float block_size = (float)((1 << 20) >> liquid->depth) * MAP_SIZE_INV;
 		vec3 block_pos = {liquid->pos.x,liquid->pos.y,liquid->pos.z};
@@ -1654,7 +1626,6 @@ void liquidSide(uint x,uint y,uint z,uint depth,uint side,uint* neighbour){
 		liquid->block->ammount -= liquid->block->ammount * 0.03f;
 		return;
 	}
-	
 	for(int i = 0;i < 4;i++)
 		liquidSideSub(node->child_s[neighbour[i]],liquid,neighbour,i < 2 ? 0.0f : 0.5f,-dx,-dy);
 }
@@ -1665,11 +1636,10 @@ void gasSpread(uint x,uint y,uint z,uint depth,uint side,uint* neighbour){
 	int dx = side >> 1 == VEC3_X ? side & 1 ? -1 : 1 : 0;
 	int dy = side >> 1 == VEC3_Y ? side & 1 ? -1 : 1 : 0;
 	int dz = side >> 1 == VEC3_Z ? side & 1 ? -1 : 1 : 0;
-	block_node_t* node   = &node_root[getNode(x + dx,y + dy,z + dz,depth)];
-	block_node_t* base = &node_root[getNode(x,y,z,depth)];
-	if(node->block){
+	node_t* node = &node_root[getNode(x + dx,y + dy,z + dz,depth)];
+	node_t* base = &node_root[getNode(x,y,z,depth)];
+	if(node->block)
 		return;
-	}
 	if(node->air){
 		float ammount_1 = node->air->o2;
 		float ammount_2 = base->air->o2;
@@ -1680,8 +1650,156 @@ void gasSpread(uint x,uint y,uint z,uint depth,uint side,uint* neighbour){
 	}
 }
 
+#define POWDER_DEPTH 11
+
+bool powderSub(uint node_ptr,uint* neighbour,int dx,int dy,int dz){
+	node_t node = node_root[node_ptr];
+	if(node.block)
+		return false;
+	if(node.air){
+		int x = node.pos.x;
+		int y = node.pos.y;
+		int z = node.pos.z;
+		if(node.depth == POWDER_DEPTH){
+			if(node_root[getNode(x,y,z - 1,POWDER_DEPTH)].block)
+				return false;
+			setVoxelSolid(x,y,z,POWDER_DEPTH,1);
+			removeVoxel(node_ptr);
+			return true;
+		}
+		for(int i = node.depth;i < POWDER_DEPTH;i++){
+			x <<= 1;
+			y <<= 1;
+			z <<= 1;
+			x += dx ? dx == -1 ? 1 : 0 : TRND1 < 0.5f;
+			y += dy ? dy == -1 ? 1 : 0 : TRND1 < 0.5f;
+			z += dz ? dz == -1 ? 1 : 0 : TRND1 < 0.5f;
+		}
+		if(node_root[getNode(x,y,z - 1,POWDER_DEPTH)].block)
+			return false;
+		setVoxelSolid(x,y,z,POWDER_DEPTH,1);
+		removeVoxel(node_ptr);
+		int depth_mask = (1 << POWDER_DEPTH - node.depth) - 1;
+		addSubVoxel(node.pos.x << 1,node.pos.y << 1,node.pos.z << 1,x - dx & depth_mask,y - dy & depth_mask,z - dz & depth_mask,POWDER_DEPTH - node.depth,POWDER_DEPTH,1);
+		return true;
+	}
+	for(int i = 0;i < 4;i++)
+		if(powderSub(node.child_s[neighbour[i]],neighbour,dx,dy,dz))
+			return true;
+	return false;
+}
+
+bool powderSide(uint node_ptr,int side){
+	node_t base = node_root[node_ptr];
+	int dx = side >> 1 == VEC3_X ? side & 1 ? -1 : 1 : 0;
+	int dy = side >> 1 == VEC3_Y ? side & 1 ? -1 : 1 : 0;
+	int dz = side >> 1 == VEC3_Z ? side & 1 ? -1 : 1 : 0;
+	node_t* node   = &node_root[getNode(base.pos.x + dx,base.pos.y + dy,base.pos.z + dz,base.depth)];
+	uint* neighbour = border_block_table[side];
+	if(node->block)
+		return false;
+	if(node->air){
+		int x = base.pos.x + dx;
+		int y = base.pos.y + dy;
+		int z = base.pos.z + dz;
+		if(base.depth == POWDER_DEPTH){
+			if(node_root[getNode(x,y,z - 1,POWDER_DEPTH)].block)
+				return false;
+			setVoxelSolid(x,y,z,POWDER_DEPTH,base.block->material);
+			removeVoxel(node_ptr);
+			return true;
+		}
+		for(int i = base.depth;i < POWDER_DEPTH;i++){
+			x <<= 1;
+			y <<= 1;
+			z <<= 1;
+			x += dx ? dx == -1 ? 1 : 0 : TRND1 < 0.5f;
+			y += dy ? dy == -1 ? 1 : 0 : TRND1 < 0.5f;
+			z += dz ? dz == -1 ? 1 : 0 : TRND1 < 0.5f;
+		}
+		if(node_root[getNode(x,y,z - 1,POWDER_DEPTH)].block)
+			return false;
+		setVoxelSolid(x,y,z,POWDER_DEPTH,base.block->material);
+		removeVoxel(node_ptr);
+		int depth_mask = (1 << POWDER_DEPTH - base.depth) - 1;
+		addSubVoxel(base.pos.x << 1,base.pos.y << 1,base.pos.z << 1,x - dx & depth_mask,y - dy & depth_mask,z - dz & depth_mask,POWDER_DEPTH - base.depth,POWDER_DEPTH,1);
+		return true;
+	}
+	for(int i = 0;i < 4;i++)
+		if(powderSub(node->child_s[neighbour[i]],neighbour,dx,dy,dz))
+			return true;
+	return false;
+}
+
+bool powderUnderSub(uint node_ptr){
+	node_t node = node_root[node_ptr];
+	if(node.block)
+		return false;
+	if(node.air){
+		int x = node.pos.x;
+		int y = node.pos.y;
+		int z = node.pos.z;
+		if(node.depth == POWDER_DEPTH){
+			setVoxelSolid(x,y,z,POWDER_DEPTH,1);
+			removeVoxel(node_ptr);
+			return true;
+		}
+		for(int i = node.depth;i < POWDER_DEPTH;i++){
+			x <<= 1;
+			y <<= 1;
+			z <<= 1;
+			x += TRND1 < 0.5f;
+			y += TRND1 < 0.5f;
+			z++;
+		}
+		setVoxelSolid(x,y,z,POWDER_DEPTH,1);
+		removeVoxel(node_ptr);
+		int depth_mask = (1 << POWDER_DEPTH - node.depth) - 1;
+		addSubVoxel(node.pos.x << 1,node.pos.y << 1,node.pos.z << 1,x & depth_mask,y & depth_mask,z + 1 & depth_mask,POWDER_DEPTH - node.depth,POWDER_DEPTH,1);
+		return true;
+	}
+	for(int i = 0;i < 4;i++)
+		if(powderUnderSub(node.child_s[border_block_table[4][i]]))
+			return true;
+	return false;
+}
+
+bool powderUnder(uint node_ptr){
+	node_t base = node_root[node_ptr];
+	node_t* node = &node_root[getNode(base.pos.x,base.pos.y,base.pos.z - 1,base.depth)];
+	if(node->block)
+		return false;
+	if(node->air){
+		int x = base.pos.x;
+		int y = base.pos.y;
+		int z = base.pos.z - 1;
+		if(base.depth == POWDER_DEPTH){
+			setVoxelSolid(x,y,z,POWDER_DEPTH,base.block->material);
+			removeVoxel(node_ptr);
+			return true;
+		}
+		for(int i = base.depth;i < POWDER_DEPTH;i++){
+			x <<= 1;
+			y <<= 1;
+			z <<= 1;
+			x += TRND1 < 0.5f;
+			y += TRND1 < 0.5f;
+			z++;
+		}
+		setVoxelSolid(x,y,z,POWDER_DEPTH,base.block->material);
+		removeVoxel(node_ptr);
+		int depth_mask = (1 << POWDER_DEPTH - base.depth) - 1;
+		addSubVoxel(base.pos.x << 1,base.pos.y << 1,base.pos.z << 1,x & depth_mask,y & depth_mask,z + 1 & depth_mask,POWDER_DEPTH - base.depth,POWDER_DEPTH,1);
+		return true;
+	}
+	for(int i = 0;i < 4;i++)
+		if(powderUnderSub(node->child_s[border_block_table[4][i]]))
+			return true;
+	return false;
+}
+
 void blockTick(uint node_ptr){
-	block_node_t* node = &node_root[node_ptr];
+	node_t* node = &node_root[node_ptr];
 	if(node->air){
 		for(int i = 0;i < 6;i++){
 			gasSpread(node->pos.x,node->pos.y,node->pos.z,node->depth,i,border_block_table[i]);
@@ -1699,13 +1817,22 @@ void blockTick(uint node_ptr){
 				liquidSide(node->pos.x,node->pos.y,node->pos.z,node->depth,3,border_block_table[3]);
 			}
 		}
+		if(material.flags & MAT_POWDER){
+			if(powderUnder(node_ptr))
+				return;
+			if(TRND1 > 0.05f)
+				return;
+			for(int i = 0;i < 4;i++)
+				if(powderSide(node_ptr,i))
+					return;
+		}
 		return;
 	}
 	float block_size = (float)((1 << 20) >> node->depth) * MAP_SIZE_INV;
 	vec3 block_pos = {node->pos.x,node->pos.y,node->pos.z};
 	vec3add(&block_pos,0.5f);
 	vec3mul(&block_pos,block_size);
-	float distance = sdCube(camera_rd.pos,block_pos,block_size);
+	float distance = sdCube(camera.pos,block_pos,block_size);
 	if(distance > BLOCKTICK_RADIUS)
 		return;
 	for(int i = 0;i < 8;i++){
@@ -1716,7 +1843,7 @@ void blockTick(uint node_ptr){
 }
 
 void blockTransferBuffer(uint node_ptr){
-	block_node_t* node = &node_root[node_ptr];
+	node_t* node = &node_root[node_ptr];
 	if(node->air){
 		return;
 	}
@@ -1734,7 +1861,7 @@ void blockTransferBuffer(uint node_ptr){
 	vec3 block_pos = {node->pos.x,node->pos.y,node->pos.z};
 	vec3add(&block_pos,0.5f);
 	vec3mul(&block_pos,block_size);
-	float distance = sdCube(camera_rd.pos,block_pos,block_size);
+	float distance = sdCube(camera.pos,block_pos,block_size);
 	if(distance > BLOCKTICK_RADIUS)
 		return;
 	for(int i = 0;i < 8;i++){
@@ -1749,8 +1876,6 @@ void draw(){
 	unsigned long long time;
 	for(;;){
 		is_rendering = true;
-
-		camera_rd = camera;
 
 		static bool hand_light;
 		vec3 hand_light_luminance;
@@ -1827,8 +1952,8 @@ void draw(){
 		if(tool_select == 0 && material_array[block_type].flags & MAT_LUMINANT){
 			vec3 luminance = material_array[block_type].luminance;
 			hand_light_luminance = luminance;
-			hand_light_pos = camera_rd.pos;
-			calculateDynamicLight(camera_rd.pos,0,20.0f,luminance);
+			hand_light_pos = camera.pos;
+			calculateDynamicLight(camera.pos,0,20.0f,luminance);
 			hand_light = true;
 		}
 		for(int i = 0;i < ENTITY_AMMOUNT;i++){
@@ -1836,9 +1961,6 @@ void draw(){
 				continue;
 			if(entity_array[i].flags & ENTITY_LUMINANT)
 				calculateDynamicLight(entity_array[i].pos,0,10.0f,entity_array[i].color);
-			if(!entity_array[i].air_ptr)
-				continue;
-			entity_array[i].air_ptr->has_entity = true;
 		}
 		if(r_click){
 			r_click = false;
@@ -1869,10 +1991,9 @@ void main(){
 #pragma comment(lib,"Winmm.lib")
 	timeBeginPeriod(1);
 
-	node_root = MALLOC(sizeof(block_node_t) * 1024 * 1024);
+	node_root = MALLOC(sizeof(node_t) * 1024 * 1024 * 32);
 	triangles = MALLOC(sizeof(triangles_t) * 10000000);
 	texture_atlas = MALLOC(sizeof(pixel_t) * 1024 * 1024 * 2 * TEXTURE_AMMOUNT);
-	node_root[0].parent = 0xffffffff;
 
 	bmi.bmiHeader.biWidth  = WND_RESOLUTION.y;
 	bmi.bmiHeader.biHeight = WND_RESOLUTION.x;
@@ -1965,9 +2086,14 @@ void main(){
 			if(f + 1 > z)
 				setVoxelSolid(x,y,z,depth,0);	
 			}
-		}
+		}	
 	}
-	
+
+	vec3 spawnPos = (vec3){camera.pos.x,camera.pos.y,MAP_SIZE};
+	float distance = rayGetDistance(spawnPos,(vec3){0.01f,0.01f,-1.0f}) - 15.0f;
+	spawnPos.z -= distance;
+	camera.pos = spawnPos;
+
 	vram.draw = MALLOC(sizeof(pixel_t) * WND_RESOLUTION.x * WND_RESOLUTION.y);
 	vram.render = MALLOC(sizeof(pixel_t) * WND_RESOLUTION.x * WND_RESOLUTION.y);
 

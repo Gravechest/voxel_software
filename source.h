@@ -9,7 +9,7 @@
 
 #define TEXTURE_AMMOUNT 6
 
-#define LIGHT_NEW_STACK_SIZE 16
+#define LIGHT_NEW_STACK_SIZE 64
 
 #define TEXTURE_SCALE (2048.0f * MAP_SIZE)
 #define FOG_DISTANCE 0.0005f
@@ -43,7 +43,8 @@
 #define DRAW_MULTITHREAD 1
 
 enum{
-	GAMEMODE_SURVIVAL,GAMEMODE_CREATIVE
+	GAMEMODE_SURVIVAL,
+	GAMEMODE_CREATIVE
 };
 
 typedef unsigned int uint;
@@ -103,6 +104,7 @@ typedef struct{
 #define MAT_REFRACT (1 << 1)
 #define MAT_LUMINANT (1 << 2)
 #define MAT_LIQUID (1 << 3)
+#define MAT_POWDER (1 << 4)
 
 typedef struct{
 	int flags;
@@ -132,7 +134,7 @@ typedef struct{
 
 typedef struct{
 	vec3 luminance;
-	uint has_entity;
+	int entity;
 	float o2;
 	/*
 	float co2;
@@ -140,7 +142,7 @@ typedef struct{
 	*/
 }air_t;
 
-typedef struct block_node_t{
+typedef struct{
 	union{
 		uint child[2][2][2];
 		uint child_s[8];
@@ -151,10 +153,10 @@ typedef struct block_node_t{
 	air_t* air;
 	unsigned char depth;
 	unsigned char zone;
-}block_node_t;
+}node_t;
 
 typedef struct{
-	block_node_t* node;
+	node_t* node;
 	uint side;
 }light_new_stack_t;
 
@@ -178,7 +180,6 @@ extern volatile uint light_new_stack_ptr;
 extern volatile light_new_stack_t light_new_stack[];
 extern bool context_is_gl;
 extern pixel_t* texture_atlas;
-extern camera_t camera_rd;
 extern int block_type;
 extern int tool_select;
 extern inventoryslot_t inventory_slot[9];
