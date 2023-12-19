@@ -8,6 +8,7 @@
 #define GETLIGHTMAPSIZE(DEPTH) (1 << (LM_MAXDEPTH - (int)(DEPTH) < 0 ? 0 : LM_MAXDEPTH - (int)(DEPTH)))
 
 #include "vec3.h"
+#include "tree.h"
 
 void lighting();
 

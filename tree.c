@@ -3,6 +3,7 @@
 #include "memory.h"
 #include "lighting.h"
 #include "fog.h"
+#include "powergrid.h"
 
 uint block_node_c;
 node_t* node_root;
@@ -139,6 +140,8 @@ uint getNode(int x,int y,int z,int depth){
 void removeVoxel(uint node_ptr){
 	node_t* node = &node_root[node_ptr];
 	if(node->block){
+		if(material_array[node->block->material].flags & MAT_POWER)
+			removePowerGrid(node_ptr);
 		if(material_array[node->block->material].flags & MAT_LIQUID){
 
 		}
@@ -178,16 +181,15 @@ void removeVoxel(uint node_ptr){
 		return;
 	removeVoxel(node->parent);
 }
-
+	
 static uint stack_ptr;
 static uint stack[240000];
 
 void removeSubVoxel(uint node_ptr){
 	node_t* node = &node_root[node_ptr];
 	if(node->block){
-		if(material_array[node->block->material].flags & MAT_LIQUID){
-
-		}
+		if(material_array[node->block->material].flags & MAT_POWER)
+			removePowerGrid(node_ptr);
 		else{
 			for(int i = 0;i < 6;i++){
 				if(!node->block->side[i].luminance_p)
@@ -295,6 +297,8 @@ void setVoxel(uint x,uint y,uint z,uint depth,uint material,float ammount){
 				block->disturbance = 0.005f;
 			}
 			node[node_ptr].block = block;
+			if(material_array[material].flags & MAT_POWER)
+				applyPowerGrid(node_ptr);
 			return;
 		}
 		node_ptr = node[node_ptr].parent;

@@ -143,8 +143,8 @@ void addSubSquare(vec3 block_pos,ivec3 axis,node_t node,float block_size,int sid
 	if(material_array[node.block->material].flags & (MAT_REFLECT | MAT_LIQUID | MAT_REFRACT))
 		detail *= 8.0f;
 	material_t material = material_array[node.block->material];
-
-	uint square_size = tMax(detail * sub_size,1);
+	uint lm_size = GETLIGHTMAPSIZE(node.depth);
+	uint square_size = tMax(tMin(detail,lm_size) * sub_size,1);
 	uint count = 0;
 
 	while(square_size > 1){
@@ -166,20 +166,29 @@ void addSubSquare(vec3 block_pos,ivec3 axis,node_t node,float block_size,int sid
 	static vec3 lighting_grid[4096];
 	static fog_t fog_color_cache[4096];
 
-	uint lm_size = GETLIGHTMAPSIZE(node.depth);
-
 	for(int i = 0;i < square_size + 1;i++){
 		for(int j = 0;j < square_size + 1;j++){
 			vec2 lm = {
 				square_size_lm * j + sqf_x,
 				square_size_lm * i + sqf_y
-			};	
+			};
 			uint location = i * (square_size + 1) + j;
 			fog_color_cache[location] = calculateFogColor(pos);
 			point_grid[location] = pos;
 			if(material.flags & MAT_LUMINANT){
 				lighting_grid[location] = material.luminance;
 			}
+			
+			else if(material.flags & MAT_POWER){
+				lighting_grid[location].r = tFract((tHash(node.block->power_grid[0]) & 255) * 0.1f);
+				lighting_grid[location].g = tFract((tHash(node.block->power_grid[0] + 124) & 255) * 0.1f);
+				lighting_grid[location].b = tFract((tHash(node.block->power_grid[0] + 1354) & 255) * 0.1f);
+			}
+			
+			else if(node.block->power){
+				lighting_grid[location] = vec3mulR(material.luminance,node.block->power);
+			}
+			
 			else if(material.flags & MAT_REFLECT){
 				vec3 normal = VEC3_ZERO;
 				normal.a[axis.z] = 1.0f;
@@ -237,6 +246,7 @@ void addSubSquare(vec3 block_pos,ivec3 axis,node_t node,float block_size,int sid
 			else{
 				int lm_location = (int)(lm.x * (lm_size)) * (int)(lm_size + 1) + lm.y * (lm_size);
 				lighting_grid[location] = node.block->side[side].luminance_p[lm_location];
+				vec3mul(&lighting_grid[location],camera.exposure);
 			}
 			lighting_grid[location] = (vec3){lighting_grid[location].b,lighting_grid[location].g,lighting_grid[location].r};
 			pos.a[axis.x] += block_size_sub;
@@ -245,6 +255,15 @@ void addSubSquare(vec3 block_pos,ivec3 axis,node_t node,float block_size,int sid
 		pos.a[axis.y] += block_size_sub;
 	}
 	
+	if(tool_select == 0 && material.flags & MAT_LUMINANT){
+		for(int i = 0;i < square_size + 1;i++){
+			for(int j = 0;j < square_size + 1;j++){
+				uint location = i * (square_size + 1) + j;
+				vec3addvec3(&lighting_grid[location],material.luminance);
+			}
+		}
+	}
+
 	float x = block_pos.a[axis.x];
 	float y = block_pos.a[axis.y];
 
@@ -422,22 +441,6 @@ void test(node_t node,vec3 block_pos,ivec3 axis,float block_size,int side,float 
 	detail = LOD_NORMAL / sqrtf(detail);
 	detail *= sqrtf(tAbsf(dir.a[axis.z]));
 	detail /= (float)(1 << node.depth);
-	if(detail > 8.0f * (1 << depth)){
-		block_size *= 0.5f;
-		size *= 0.5f;
-		for(int i = 0;i < 2;i++){
-			for(int j = 0;j < 2;j++){
-				test(node,block_pos,axis,block_size,side,x,y,size,depth + 1);
-				block_pos.a[axis.x] += block_size;
-				x += size;
-			}
-			block_pos.a[axis.x] -= block_size * 2.0f;
-			block_pos.a[axis.y] += block_size;
-			x -= size * 2.0f;
-			y += size;
-		}
-		return;
-	}
 	addSubSquare(block_pos,axis,node,block_size,side,detail,x,y,size);
 }
 

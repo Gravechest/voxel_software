@@ -19,6 +19,7 @@
 #include "entity.h"
 #include "player.h"
 #include "draw.h"
+#include "powergrid.h"
 
 #include <gl/GL.h>
 
@@ -28,7 +29,6 @@ bool lighting_thread_done = true;
 
 HANDLE physics_thread; 
 HANDLE thread_render;  
-HANDLE lighting_thread;
 HANDLE entity_thread;
 
 vec3 music_box_pos;
@@ -42,7 +42,13 @@ BITMAPINFO bmi = {sizeof(BITMAPINFOHEADER),0,0,1,32,BI_RGB};
 HWND window;
 HDC context;
 vram_t vram;
-camera_t camera = {.pos.z = MAP_SIZE + 2.0f,.pos.x = MAP_SIZE + 0.5f,.pos.y = MAP_SIZE + 0.5f};
+camera_t camera = {
+	.pos.z = MAP_SIZE + 2.0f,
+	.pos.x = MAP_SIZE + 0.5f,
+	.pos.y = MAP_SIZE + 0.5f,
+	.exposure = 1.0f
+};
+
 float camera_exposure = 1.0f;
 
 int edit_depth = 5;
@@ -71,7 +77,7 @@ uint inventory_select = 1;
 
 bool in_console;
 
-uint border_block_table[6][4] = {
+uint border_block_table[][4] = {
 	{0,2,4,6},
 	{1,3,5,7},
 	{0,1,4,5},
@@ -80,7 +86,7 @@ uint border_block_table[6][4] = {
 	{4,5,6,7}
 };
 
-inventoryslot_t inventory_slot[9] = {
+inventoryslot_t inventory_slot[] = {
 	{.type = -1},
 	{.type = -1},
 	{.type = -1},
@@ -89,13 +95,6 @@ inventoryslot_t inventory_slot[9] = {
 	{.type = -1},
 	{.type = -1},
 	{.type = -1}
-};
-
-enum{
-	BLOCK_WHITE,
-	BLOCK_SANDSTONE,
-	BLOCK_SKIN,
-	BLOCK_SPAWNLIGHT
 };
 
 material_t material_array[] = {
@@ -109,6 +108,31 @@ material_t material_array[] = {
 		.texture_pos = {0.0f,0.0f},
 		.texture_size = {0.01f,0.01f},
 		.flags = MAT_POWDER
+	},
+	{
+		.luminance = {0.3f,0.3f,0.9f},
+		.texture_pos = {0.0f,0.0f},
+		.texture_size = {0.01f,0.01f},
+		.flags = MAT_POWER
+	},
+	{
+		.luminance = {0.3f,0.9f,0.3f},
+		.texture_pos = {0.0f,0.0f},
+		.texture_size = {0.01f,0.01f},
+		.flags = MAT_POWER
+	},
+	{
+		.luminance = {0.9f,0.9f,0.3f},
+		.texture_pos = {0.0f,0.0f},
+		.texture_size = {0.01f,0.01f},
+		.flags = MAT_POWER
+	},
+	{
+		.luminance = {0.9f,0.3f,0.3f},
+		.texture_pos = {0.0f,0.0f},
+		.texture_size = {0.01f,0.01f},
+		.light_emit = 5.0f,
+		.flags = MAT_POWER
 	},
 	{
 		.luminance = {1.0f,1.0f,1.0f},
@@ -1062,12 +1086,15 @@ void guiRectangle(vec2 pos,vec2 size,vec3 color){
 void castVisibilityRays(){
 	traverse_init_t init = initTraverse(camera.pos);
 	static uint counter;
+	float luminance_accumulate = 0.0f;
 	for(int x = counter / 16;x < WND_RESOLUTION.x;x += 16){
 		for(int y = counter % 16;y < WND_RESOLUTION.y;y += 16){
 			vec3 ray_angle = getRayAngle(x,y);
 			node_hit_t hit = treeRay(ray3Create(init.pos,ray_angle),init.node,camera.pos);
 			if(!hit.node)
 				continue;
+			vec3 luminance = sideGetLuminance(camera.pos,ray_angle,hit,0);
+			luminance_accumulate += tMaxf(luminance.r,tMaxf(luminance.g,luminance.b));
 			node_t* node = &node_root[hit.node];
 			uint side = hit.side * 2 + (ray_angle.a[hit.side] < 0.0f);
 			if(!node->block)
@@ -1076,6 +1103,9 @@ void castVisibilityRays(){
 				lightNewStackPut(node,node->block,side);
 		}
 	}
+	luminance_accumulate /= (WND_RESOLUTION.x / 16) * (WND_RESOLUTION.y / 16);
+	camera.exposure = camera.exposure * 0.99f + (2.0f - tMinf(luminance_accumulate,1.9f)) * 0.01f;
+	camera.exposure = camera.exposure * 0.99f + 0.01f;
 	/*
 	for(int x = 0;x < WND_RESOLUTION.x;x += 16){
 		for(int y = 0;y < WND_RESOLUTION.y;y += 16){
@@ -1089,17 +1119,6 @@ void castVisibilityRays(){
 }
 
 #define RD_SOFTWARE 0
-
-void calibrateExposure(){
-	float accumulate = 0.0f;
-	for(int i = 0;i < triangle_count;i++){
-		accumulate += tMaxf(tMaxf(triangles[i].lighting.r,triangles[i].lighting.g),triangles[i].lighting.b);
-	}
-	accumulate /= triangle_count;
-	accumulate = (1.0f / accumulate);
-	camera_exposure = (camera_exposure * 99.0f + accumulate) / 100.0f;
-	camera_exposure = (camera_exposure * 99.0f + 1.0f) / 100.0f;
-}
 
 void drawSoftware(){
 	glUseProgram(shader_program_plain_texture);
@@ -1652,19 +1671,29 @@ void gasSpread(uint x,uint y,uint z,uint depth,uint side,uint* neighbour){
 
 #define POWDER_DEPTH 11
 
-bool powderSub(uint node_ptr,uint* neighbour,int dx,int dy,int dz){
+bool powderSideSub(uint base_ptr,uint node_ptr,uint* neighbour,int dx,int dy,int dz){
 	node_t node = node_root[node_ptr];
 	if(node.block)
 		return false;
 	if(node.air){
+		node_t base = node_root[base_ptr];
 		int x = node.pos.x;
 		int y = node.pos.y;
 		int z = node.pos.z;
-		if(node.depth == POWDER_DEPTH){
+		int depth = node.depth;
+		for(;depth < base.depth && depth < POWDER_DEPTH;depth++){
+			x <<= 1;
+			y <<= 1;
+			z <<= 1;
+			x += dx ? dx == -1 ? 1 : 0 : !!(base.pos.x & 1 << POWDER_DEPTH - depth - 1);
+			y += dy ? dy == -1 ? 1 : 0 : !!(base.pos.y & 1 << POWDER_DEPTH - depth - 1);
+			z += dz ? dz == -1 ? 1 : 0 : !!(base.pos.z & 1 << POWDER_DEPTH - depth - 1);
+		}
+		if(base.depth == POWDER_DEPTH){
 			if(node_root[getNode(x,y,z - 1,POWDER_DEPTH)].block)
 				return false;
 			setVoxelSolid(x,y,z,POWDER_DEPTH,1);
-			removeVoxel(node_ptr);
+			removeVoxel(base_ptr);
 			return true;
 		}
 		for(int i = node.depth;i < POWDER_DEPTH;i++){
@@ -1678,13 +1707,13 @@ bool powderSub(uint node_ptr,uint* neighbour,int dx,int dy,int dz){
 		if(node_root[getNode(x,y,z - 1,POWDER_DEPTH)].block)
 			return false;
 		setVoxelSolid(x,y,z,POWDER_DEPTH,1);
-		removeVoxel(node_ptr);
-		int depth_mask = (1 << POWDER_DEPTH - node.depth) - 1;
-		addSubVoxel(node.pos.x << 1,node.pos.y << 1,node.pos.z << 1,x - dx & depth_mask,y - dy & depth_mask,z - dz & depth_mask,POWDER_DEPTH - node.depth,POWDER_DEPTH,1);
+		removeVoxel(base_ptr);
+		int depth_mask = (1 << POWDER_DEPTH - base.depth) - 1;
+		addSubVoxel(base.pos.x << 1,base.pos.y << 1,base.pos.z << 1,x - dx & depth_mask,y - dy & depth_mask,z - dz & depth_mask,POWDER_DEPTH - base.depth,POWDER_DEPTH,1);
 		return true;
 	}
 	for(int i = 0;i < 4;i++)
-		if(powderSub(node.child_s[neighbour[i]],neighbour,dx,dy,dz))
+		if(powderSideSub(base_ptr,node.child_s[neighbour[i]],neighbour,dx,dy,dz))
 			return true;
 	return false;
 }
@@ -1694,57 +1723,34 @@ bool powderSide(uint node_ptr,int side){
 	int dx = side >> 1 == VEC3_X ? side & 1 ? -1 : 1 : 0;
 	int dy = side >> 1 == VEC3_Y ? side & 1 ? -1 : 1 : 0;
 	int dz = side >> 1 == VEC3_Z ? side & 1 ? -1 : 1 : 0;
-	node_t* node   = &node_root[getNode(base.pos.x + dx,base.pos.y + dy,base.pos.z + dz,base.depth)];
-	uint* neighbour = border_block_table[side];
-	if(node->block)
-		return false;
-	if(node->air){
-		int x = base.pos.x + dx;
-		int y = base.pos.y + dy;
-		int z = base.pos.z + dz;
-		if(base.depth == POWDER_DEPTH){
-			if(node_root[getNode(x,y,z - 1,POWDER_DEPTH)].block)
-				return false;
-			setVoxelSolid(x,y,z,POWDER_DEPTH,base.block->material);
-			removeVoxel(node_ptr);
-			return true;
-		}
-		for(int i = base.depth;i < POWDER_DEPTH;i++){
-			x <<= 1;
-			y <<= 1;
-			z <<= 1;
-			x += dx ? dx == -1 ? 1 : 0 : TRND1 < 0.5f;
-			y += dy ? dy == -1 ? 1 : 0 : TRND1 < 0.5f;
-			z += dz ? dz == -1 ? 1 : 0 : TRND1 < 0.5f;
-		}
-		if(node_root[getNode(x,y,z - 1,POWDER_DEPTH)].block)
-			return false;
-		setVoxelSolid(x,y,z,POWDER_DEPTH,base.block->material);
-		removeVoxel(node_ptr);
-		int depth_mask = (1 << POWDER_DEPTH - base.depth) - 1;
-		addSubVoxel(base.pos.x << 1,base.pos.y << 1,base.pos.z << 1,x - dx & depth_mask,y - dy & depth_mask,z - dz & depth_mask,POWDER_DEPTH - base.depth,POWDER_DEPTH,1);
-		return true;
-	}
-	for(int i = 0;i < 4;i++)
-		if(powderSub(node->child_s[neighbour[i]],neighbour,dx,dy,dz))
-			return true;
-	return false;
+	uint adjent = getNode(base.pos.x + dx,base.pos.y + dy,base.pos.z + dz,base.depth);
+	return powderSideSub(node_ptr,adjent,border_block_table[side],dx,dy,dz);
 }
 
-bool powderUnderSub(uint node_ptr){
+bool powderUnderSub(uint base_ptr,uint node_ptr){
 	node_t node = node_root[node_ptr];
 	if(node.block)
 		return false;
 	if(node.air){
+		node_t base = node_root[base_ptr];
 		int x = node.pos.x;
 		int y = node.pos.y;
 		int z = node.pos.z;
-		if(node.depth == POWDER_DEPTH){
-			setVoxelSolid(x,y,z,POWDER_DEPTH,1);
-			removeVoxel(node_ptr);
+		int depth = node.depth;
+		for(;depth < base.depth && depth < POWDER_DEPTH;depth++){
+			x <<= 1;
+			y <<= 1;
+			z <<= 1;
+			x += !!(base.pos.x & 1 << POWDER_DEPTH - depth - 1);
+			y += !!(base.pos.y & 1 << POWDER_DEPTH - depth - 1);
+			z++;
+		}
+		if(base.depth >= POWDER_DEPTH){
+			setVoxelSolid(x,y,z,base.depth,1);
+			removeVoxel(base_ptr);
 			return true;
 		}
-		for(int i = node.depth;i < POWDER_DEPTH;i++){
+		for(;depth < POWDER_DEPTH;depth++){
 			x <<= 1;
 			y <<= 1;
 			z <<= 1;
@@ -1753,57 +1759,27 @@ bool powderUnderSub(uint node_ptr){
 			z++;
 		}
 		setVoxelSolid(x,y,z,POWDER_DEPTH,1);
-		removeVoxel(node_ptr);
-		int depth_mask = (1 << POWDER_DEPTH - node.depth) - 1;
-		addSubVoxel(node.pos.x << 1,node.pos.y << 1,node.pos.z << 1,x & depth_mask,y & depth_mask,z + 1 & depth_mask,POWDER_DEPTH - node.depth,POWDER_DEPTH,1);
+		removeVoxel(base_ptr);
+		int depth_mask = (1 << POWDER_DEPTH - base.depth) - 1;
+		addSubVoxel(base.pos.x << 1,base.pos.y << 1,base.pos.z << 1,x & depth_mask,y & depth_mask,z + 1 & depth_mask,POWDER_DEPTH - base.depth,POWDER_DEPTH,1);
 		return true;
 	}
 	for(int i = 0;i < 4;i++)
-		if(powderUnderSub(node.child_s[border_block_table[4][i]]))
+		if(powderUnderSub(base_ptr,node.child_s[border_block_table[4][i]]))
 			return true;
 	return false;
 }
 
 bool powderUnder(uint node_ptr){
 	node_t base = node_root[node_ptr];
-	node_t* node = &node_root[getNode(base.pos.x,base.pos.y,base.pos.z - 1,base.depth)];
-	if(node->block)
-		return false;
-	if(node->air){
-		int x = base.pos.x;
-		int y = base.pos.y;
-		int z = base.pos.z - 1;
-		if(base.depth == POWDER_DEPTH){
-			setVoxelSolid(x,y,z,POWDER_DEPTH,base.block->material);
-			removeVoxel(node_ptr);
-			return true;
-		}
-		for(int i = base.depth;i < POWDER_DEPTH;i++){
-			x <<= 1;
-			y <<= 1;
-			z <<= 1;
-			x += TRND1 < 0.5f;
-			y += TRND1 < 0.5f;
-			z++;
-		}
-		setVoxelSolid(x,y,z,POWDER_DEPTH,base.block->material);
-		removeVoxel(node_ptr);
-		int depth_mask = (1 << POWDER_DEPTH - base.depth) - 1;
-		addSubVoxel(base.pos.x << 1,base.pos.y << 1,base.pos.z << 1,x & depth_mask,y & depth_mask,z + 1 & depth_mask,POWDER_DEPTH - base.depth,POWDER_DEPTH,1);
-		return true;
-	}
-	for(int i = 0;i < 4;i++)
-		if(powderUnderSub(node->child_s[border_block_table[4][i]]))
-			return true;
-	return false;
+	return powderUnderSub(node_ptr,getNode(base.pos.x,base.pos.y,base.pos.z - 1,base.depth));
 }
 
 void blockTick(uint node_ptr){
 	node_t* node = &node_root[node_ptr];
 	if(node->air){
-		for(int i = 0;i < 6;i++){
+		for(int i = 0;i < 6;i++)
 			gasSpread(node->pos.x,node->pos.y,node->pos.z,node->depth,i,border_block_table[i]);
-		}
 		return;
 	}
 	if(node->block){
@@ -1835,11 +1811,8 @@ void blockTick(uint node_ptr){
 	float distance = sdCube(camera.pos,block_pos,block_size);
 	if(distance > BLOCKTICK_RADIUS)
 		return;
-	for(int i = 0;i < 8;i++){
-		if(!node->child_s[i])
-			continue;
+	for(int i = 0;i < 8;i++)
 		blockTick(node->child_s[i]);
-	}
 }
 
 void blockTransferBuffer(uint node_ptr){
@@ -1871,9 +1844,12 @@ void blockTransferBuffer(uint node_ptr){
 	}
 }
 
+int main_thread_status;
+
 void draw(){
 	unsigned long long global_tick = GetTickCount64();
 	unsigned long long time;
+	HANDLE lighting_thread = CreateThread(0,0,lighting,0,0,0);
 	for(;;){
 		is_rendering = true;
 
@@ -1905,14 +1881,18 @@ void draw(){
 				color = (vec3){1.0f,1.0f,1.0f};
 			guiFrame((vec2){-0.505f + i * 0.17f,-0.855f},(vec2){0.15f,0.15f},color,0.02f);
 		}
+		main_thread_status = 0;
 		castVisibilityRays();
 		genBlockSelect();
 		sceneGatherTriangles(0);
+		main_thread_status = 1;
 		if(RD_SOFTWARE)
 			drawSoftware();
 		else
 			drawHardware();
-		//calibrateExposure();
+		
+		while(main_thread_status == 1)
+			Sleep(1);
 		memset(mask,0,RD_MASK_X * RD_MASK_Y);
 		triangle_count = 0;
 		float f = tMin(__rdtsc() - time >> 18,WND_RESOLUTION.x - 1);
@@ -1940,6 +1920,8 @@ void draw(){
 		blockTick(0);
 		blockTransferBuffer(0);
 		entityTick(difference / 4);
+		for(int i = 0;i < difference / 4;i++)
+			powerGridTick();
 		if(!in_console)
 			physics(difference / 4);
 		if(player_attack_state){
@@ -1948,7 +1930,6 @@ void draw(){
 			if(player_attack_state < 0)
 				player_attack_state = 0;
 		}
-		lighting();
 		if(tool_select == 0 && material_array[block_type].flags & MAT_LUMINANT){
 			vec3 luminance = material_array[block_type].luminance;
 			hand_light_luminance = luminance;
@@ -2106,7 +2087,6 @@ void main(){
 
 	CreateThread(0,0,(LPTHREAD_START_ROUTINE)draw,0,0,0);
 
-	SetThreadPriority(lighting_thread,THREAD_PRIORITY_BELOW_NORMAL);
 	SetThreadPriority(physics_thread,THREAD_PRIORITY_ABOVE_NORMAL);
 
 	MSG msg;

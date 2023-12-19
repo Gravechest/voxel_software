@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdint.h>
 #include <stdbool.h>
 
 #include "dda.h"
@@ -25,11 +26,6 @@
 #define WND_SIZE_X 1080
 #define WND_SIZE (vec2){WND_SIZE_Y,WND_SIZE_X}
 
-#define VK_W 0x57
-#define VK_S 0x53
-#define VK_A 0x41
-#define VK_D 0x44
-
 #define MAP_SIZE_BIT 8
 
 #define MAP_SIZE (1 << MAP_SIZE_BIT)
@@ -41,6 +37,18 @@
 #define MAP_SIZE_INV ((float)MAP_SIZE / (1 << 19))
 
 #define DRAW_MULTITHREAD 1
+
+enum{
+	BLOCK_WHITE,
+	BLOCK_POWDER,
+	BLOCK_BATTERY,
+	BLOCK_WIRE,
+	BLOCK_LAMP,
+	BLOCK_SWITCH,
+	BLOCK_SANDSTONE,
+	BLOCK_SKIN,
+	BLOCK_SPAWNLIGHT
+};
 
 enum{
 	GAMEMODE_SURVIVAL,
@@ -79,7 +87,7 @@ typedef struct{
 	vec2 dir;
 	vec4 tri;
 	vec3 vel;
-	float pre[5];
+	float exposure;
 }camera_t;
 
 typedef struct{
@@ -105,11 +113,13 @@ typedef struct{
 #define MAT_LUMINANT (1 << 2)
 #define MAT_LIQUID (1 << 3)
 #define MAT_POWDER (1 << 4)
+#define MAT_POWER (1 << 5)
 
 typedef struct{
 	int flags;
 	texture_t texture;
 	vec3 luminance;
+	float light_emit;
 	vec2 texture_pos;
 	vec2 texture_size;
 	float hardness;
@@ -120,7 +130,7 @@ typedef struct{
 }block_side_t;
 
 typedef struct{
-	uint material;
+	uint16_t material;
 	union{
 		block_side_t side[6];
 		struct{
@@ -129,7 +139,8 @@ typedef struct{
 			float disturbance;
 		};
 	};
-	int padding[2];
+	uint16_t power_grid[2];
+	float power;
 }block_t;
 
 typedef struct{
@@ -184,6 +195,7 @@ extern int block_type;
 extern int tool_select;
 extern inventoryslot_t inventory_slot[9];
 extern uint border_block_table[6][4];
+extern int main_thread_status;
 
 vec3 pointToScreenZ(vec3 point);
 plane_t getPlane(vec3 pos,vec3 dir,uint side,float block_size);

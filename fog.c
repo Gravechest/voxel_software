@@ -78,7 +78,7 @@ fog_t calculateFogColor(vec3 pos){
 	if(!fog.density){
 		fog.density = 1.0f;
 		return fog;
-	}
+	}	
 	fog.density = 1.0f / (fog.density + 1.0f);
 	fog.luminance = vec3divR(fog.luminance,1.0f - fog.density);
 	return fog;

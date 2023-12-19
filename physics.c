@@ -31,17 +31,16 @@ void bunnyhop(){
 	}
 	if(insideBlock(vec3subvec3R(camera.pos,(vec3){0.0f,0.0f,1.8f})))
 		return;
-	if(physic_mouse_x < 0.0f && (GetKeyState(VK_A) & 0x80)){
+	if(physic_mouse_x < 0.0f && (GetKeyState('A') & 0x80)){
 		camera.vel.x += cosf(camera.dir.x) * MV_BHOP_BONUS / the_same;
 		camera.vel.y += sinf(camera.dir.x) * MV_BHOP_BONUS / the_same;
 		vec2rot(&camera.vel.x,physic_mouse_x);
 	}
-	if(physic_mouse_x > 0.0f && (GetKeyState(VK_D) & 0x80)){
+	if(physic_mouse_x > 0.0f && (GetKeyState('D') & 0x80)){
 		camera.vel.x += cosf(camera.dir.x) * MV_BHOP_BONUS / the_same;
 		camera.vel.y += sinf(camera.dir.x) * MV_BHOP_BONUS / the_same;
 		vec2rot(&camera.vel.x,physic_mouse_x);
 	}
-	
 	physic_mouse_x = 0.0f;
 }
 
@@ -60,48 +59,66 @@ bool boxCubeIntersect(vec3 box_pos,vec3 box_size,vec3 cube_pos,float cube_size){
     return x && y && z;
 }
 
-bool boxCollision(vec3 pos,vec3 size,uint node_ptr){
+float boxTreeCollision(vec3 pos,vec3 size,uint node_ptr){
 	node_t node = node_root[node_ptr];
 	float block_size = (float)((1 << 20) >> node.depth) * MAP_SIZE_INV;
 	vec3 block_pos = {node.pos.x,node.pos.y,node.pos.z};
 	vec3mul(&block_pos,block_size);
 	bool collision = boxCubeIntersect(pos,size,block_pos,block_size);
-	if(!collision)
-		return false;
-	if(node.air)
-		return false;
+	if(!collision || node.air)
+		return -1.0f;
 	if(node.block)
-		return true;
-	for(int i = 0;i < 8;i++){
-		collision = boxCollision(pos,size,node.child_s[i]);
-		if(collision)
-			return true;
-	}
-	return false;
+		return block_pos.z + block_size - pos.z;
+	float height = -1.0f;
+	for(int i = 0;i < 8;i++)
+		height = tMaxf(boxTreeCollision(pos,size,node.child_s[i]),height);
+	return height;
 }
 
 void walkPhysics(uint tick_ammount){
 	bunnyhop();
 	for(int i = 0;i < tick_ammount;i++){
-		bool hit[3] = {false,false,false};
+		float hit[3];
 		bool is_stair_x = true,is_stair_y = true;
 		float stair_x = 0.0f,stair_y = 0.0f;
 		bool down_z = camera.vel.z < 0.0f;
 		vec3 hitbox = vec3subvec3R(camera.pos,vec3mulR(PLAYER_SIZE,0.5f));
 		hitbox.z += PLAYER_OFFSET;
-		hit[VEC3_X] = boxCollision(vec3addvec3R(hitbox,(vec3){camera.vel.x,0.0f,0.0f}),PLAYER_SIZE,0);
-		hit[VEC3_Y] = boxCollision(vec3addvec3R(hitbox,(vec3){0.0f,camera.vel.y,0.0f}),PLAYER_SIZE,0);
-		hit[VEC3_Z] = boxCollision(vec3addvec3R(hitbox,(vec3){0.0f,0.0f,camera.vel.z}),PLAYER_SIZE,0);
+		hit[VEC3_X] = boxTreeCollision(vec3addvec3R(hitbox,(vec3){camera.vel.x,0.0f,0.0f}),PLAYER_SIZE,0);
+		hit[VEC3_Y] = boxTreeCollision(vec3addvec3R(hitbox,(vec3){0.0f,camera.vel.y,0.0f}),PLAYER_SIZE,0);
+		hit[VEC3_Z] = boxTreeCollision(vec3addvec3R(hitbox,(vec3){0.0f,0.0f,camera.vel.z}),PLAYER_SIZE,0);
 		vec3addvec3(&camera.pos,camera.vel);
-		if(hit[VEC3_X]){
-			camera.pos.x -= camera.vel.x;
-			camera.vel.x = 0.0f;
+		if(hit[VEC3_X] != -1.0f){
+			if(hit[VEC3_X] < 0.6f){
+				vec3 lifted = vec3addvec3R(hitbox,(vec3){camera.vel.x,0.0f,hit[VEC3_X] + 0.001f});
+				if(boxTreeCollision(lifted,PLAYER_SIZE,0) == -1.0f)
+					camera.pos.z += hit[VEC3_X] + 0.001f;
+				else{
+					camera.pos.x -= camera.vel.x;
+					camera.vel.x = 0.0f;
+				}
+			}
+			else{
+				camera.pos.x -= camera.vel.x;
+				camera.vel.x = 0.0f;
+			}
 		}
-		if(hit[VEC3_Y]){
-			camera.pos.y -= camera.vel.y;
-			camera.vel.y = 0.0f;
+		if(hit[VEC3_Y] != -1.0f){
+			if(hit[VEC3_Y] < 0.6f){
+				vec3 lifted = vec3addvec3R(hitbox,(vec3){0.0f,camera.vel.y,hit[VEC3_Y] + 0.001f});
+				if(boxTreeCollision(lifted,PLAYER_SIZE,0) == -1.0f)
+					camera.pos.z += hit[VEC3_Y] + 0.001f;
+				else{
+					camera.pos.y -= camera.vel.y;
+					camera.vel.y = 0.0f;
+				}
+			}
+			else{
+				camera.pos.y -= camera.vel.y;
+				camera.vel.y = 0.0f;
+			}
 		}
-		if(hit[VEC3_Z]){
+		if(hit[VEC3_Z] != -1.0f){
 			camera.pos.z -= camera.vel.z;
 			camera.vel.z = 0.0f;
 			if(down_z){
@@ -119,42 +136,42 @@ void walkPhysics(uint tick_ammount){
 		}
 		if(key.w){
 			float mod = key.d || key.a ? MV_WALKSPEED * MV_DIAGONAL : MV_WALKSPEED;
-			if(!hit[VEC3_Z] || hit[VEC3_Z] && !down_z)
+			if(hit[VEC3_Z] == -1.0f || hit[VEC3_Z] && !down_z)
 				mod *= 0.01f;
 			camera.vel.x += cosf(camera.dir.x) * mod * 2.0f;
 			camera.vel.y += sinf(camera.dir.x) * mod * 2.0f;
 		}
 		if(key.s){
 			float mod = key.d || key.a ? MV_WALKSPEED * MV_DIAGONAL : MV_WALKSPEED;
-			if(!hit[VEC3_Z] || hit[VEC3_Z] && !down_z)
+			if(hit[VEC3_Z] == -1.0f || hit[VEC3_Z] && !down_z)
 				mod *= 0.01f;
 			camera.vel.x -= cosf(camera.dir.x) * mod * 2.0f;
 			camera.vel.y -= sinf(camera.dir.x) * mod * 2.0f;
 		}
 		if(key.d){
 			float mod = key.s || key.w ? MV_WALKSPEED * MV_DIAGONAL : MV_WALKSPEED;
-			if(!hit[VEC3_Z] || hit[VEC3_Z] && !down_z)
+			if(hit[VEC3_Z] == -1.0f || hit[VEC3_Z] && !down_z)
 				mod *= 0.01f;
 			camera.vel.x += cosf(camera.dir.x + M_PI * 0.5f) * mod * 2.0f;
 			camera.vel.y += sinf(camera.dir.x + M_PI * 0.5f) * mod * 2.0f;
 		}
 		if(key.a){
 			float mod = key.s || key.w ? MV_WALKSPEED * MV_DIAGONAL : MV_WALKSPEED;
-			if(!hit[VEC3_Z] || hit[VEC3_Z] && !down_z)
+			if(hit[VEC3_Z] == -1.0f || hit[VEC3_Z] && !down_z)
 				mod *= 0.01f;
 			camera.vel.x -= cosf(camera.dir.x + M_PI * 0.5f) * mod * 2.0f;
 			camera.vel.y -= sinf(camera.dir.x + M_PI * 0.5f) * mod * 2.0f;
 		}
-		vec3mul(&camera.vel,!hit[VEC3_Z] || hit[VEC3_Z] && !down_z ? AIR_FRICTION : GROUND_FRICTION); 
+		vec3mul(&camera.vel,hit[VEC3_Z] == -1.0f || hit[VEC3_Z] && !down_z ? AIR_FRICTION : GROUND_FRICTION); 
 		camera.vel.z -= MV_GRAVITY;
 	}
 }
 
 void physics(uint tick_ammount){
-	key.w = GetKeyState(VK_W) & 0x80;
-	key.s = GetKeyState(VK_S) & 0x80;
-	key.d = GetKeyState(VK_D) & 0x80;
-	key.a = GetKeyState(VK_A) & 0x80;
+	key.w = GetKeyState('W') & 0x80;
+	key.s = GetKeyState('S') & 0x80;
+	key.d = GetKeyState('D') & 0x80;
+	key.a = GetKeyState('A') & 0x80;
 	camera.tri = (vec4){cosf(camera.dir.x),sinf(camera.dir.x),cosf(camera.dir.y),sinf(camera.dir.y)};
 	global_tick++;
 	if(!setting_fly){
