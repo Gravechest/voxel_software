@@ -4,8 +4,8 @@
 
 #include <gl/GL.h>
 
-uint triangle_count;
-triangles_t* triangles;
+uint32_t triangle_count;
+triangle_t* triangles;
 
 PIXELFORMATDESCRIPTOR pfd = {sizeof(PIXELFORMATDESCRIPTOR), 1,
 PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER,PFD_TYPE_RGBA,
@@ -122,11 +122,12 @@ char *FRAGsourceUI = ""
 
 #define RD_VSYNC true
 
-void drawBlockOutline(triangles_t* triangles){
-	glBufferData(GL_ARRAY_BUFFER,sizeof(triangles_t) * 8,triangles,GL_DYNAMIC_DRAW);
+void drawBlockOutline(triangle_t* triangles){
+	glBufferData(GL_ARRAY_BUFFER,sizeof(triangle_t) * 8,triangles,GL_DYNAMIC_DRAW);
 	glDrawArrays(GL_LINES,0,8);
 }
 #include <stdio.h>
+
 void initGL(HDC context){
 	SetPixelFormat(context, ChoosePixelFormat(context, &pfd), &pfd);
 	wglMakeCurrent(context, wglCreateContext(context));
@@ -149,7 +150,7 @@ void initGL(HDC context){
 	glLinkProgram		  = wglGetProcAddress("glLinkProgram");
 	glUseProgram		  = wglGetProcAddress("glUseProgram");
 
-	wglSwapIntervalEXT        = wglGetProcAddress("wglSwapIntervalEXT");
+	wglSwapIntervalEXT = wglGetProcAddress("wglSwapIntervalEXT");
 
 	wglSwapIntervalEXT(RD_VSYNC);
 
@@ -178,14 +179,14 @@ void initGL(HDC context){
 
 	glShaderSource(vertexshader,1,(const char**)&VERTsource,0);
 	glShaderSource(fragmentshader,1,(const char**)&FRAGsource,0);
-									
+
 	glCompileShader(vertexshader);
 	glCompileShader(fragmentshader);
 	glAttachShader(shaderprogram,vertexshader);
 	glAttachShader(shaderprogram,fragmentshader);
 	glLinkProgram(shaderprogram);
 	glUseProgram(shaderprogram);
-		
+
 	unsigned int vertexshader_ui   = glCreateShader(GL_VERTEX_SHADER);
 	unsigned int fragmentshader_ui = glCreateShader(GL_FRAGMENT_SHADER);
 
@@ -213,7 +214,7 @@ void initGL(HDC context){
 	glAttachShader(shader_program_plain_texture,fragmentshader_plain_texture);
 	
 	glLinkProgram(shader_program_plain_texture);
-		
+
 	glEnable(GL_DEPTH_TEST);
 	
 	glGenTextures(1, &texture2);  
@@ -222,6 +223,6 @@ void initGL(HDC context){
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 				  
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,1024 * TEXTURE_AMMOUNT,1024 * 2, 0, GL_RGBA, GL_UNSIGNED_BYTE,texture_atlas);
+	glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,TEXTURE_ATLAS_SIZE,TEXTURE_ATLAS_SIZE,0,GL_RGBA,GL_UNSIGNED_BYTE,texture_atlas);
 	glGenerateMipmap(GL_TEXTURE_2D);
 }

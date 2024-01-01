@@ -1,7 +1,8 @@
 #pragma once
 
-#include <Windows.h>
+#define C_STD 0
 
-#define MALLOC(AMMOUNT) HeapAlloc(GetProcessHeap(),0,AMMOUNT)
-#define MALLOC_ZERO(AMMOUNT) HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,AMMOUNT)
-#define MFREE(POINTER) HeapFree(GetProcessHeap(),0,POINTER)
+void* tMalloc(unsigned long long size);
+void* tMallocZero(unsigned long long size);
+void* tReAlloc(void* ptr,unsigned long long size);
+void tFree(void* ptr);

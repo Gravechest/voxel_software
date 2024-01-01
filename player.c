@@ -6,7 +6,7 @@
 int player_attack_state;
 
 void playerAttack(){
-	vec3 ray_dir = getLookAngle(camera.dir);
+	vec3_t ray_dir = getLookAngle(camera.dir);
 	for(int i = 0;i < ENTITY_AMMOUNT;i++){
 		entity_t* entity = &entity_array[i];
 		if(!entity->alive)
@@ -19,7 +19,7 @@ void playerAttack(){
 		if(distance > (PLAYER_FIST_DURATION / 2 - tAbsf(PLAYER_FIST_DURATION / 2 - player_attack_state)) * 0.15f)
 			continue;
 		playSound(SOUND_PUNCH,entity->pos);
-		spawnNumberParticle(entity->pos,getLookAngle((vec2){camera.dir.x + M_PI * 0.5f,camera.dir.y}),30);
+		spawnNumberParticle(entity->pos,getLookAngle((vec2_t){camera.dir.x + M_PI * 0.5f,camera.dir.y}),30);
 		if(entity->health < 30){
 			entity->alive = false;
 			return;

@@ -27,10 +27,10 @@ typedef union{
 }uvec3;
 
 typedef struct{
-	vec3 pos;
-	vec3 dir;
-	vec3 delta;
-	vec3 side;
+	vec3_t pos;
+	vec3_t dir;
+	vec3_t delta;
+	vec3_t side;
 
 	ivec3 step;
 	ivec3 square_pos;
@@ -39,10 +39,10 @@ typedef struct{
 }ray3_t;
 
 typedef struct{
-	vec2 pos;
-	vec2 dir;
-	vec2 delta;
-	vec2 side;
+	vec2_t pos;
+	vec2_t dir;
+	vec2_t delta;
+	vec2_t side;
 
 	Ivec2 step;
 	Ivec2 square_pos;
@@ -50,8 +50,8 @@ typedef struct{
 	int square_side;
 }ray2_t;
 
-ray3_t ray3Create(vec3 pos,vec3 dir);
-ray2_t ray2Create(vec2 pos,vec2 dir);
+ray3_t ray3Create(vec3_t pos,vec3_t dir);
+ray2_t ray2Create(vec2_t pos,vec2_t dir);
 void ray2Itterate(ray2_t* ray);
 void ray3Itterate(ray3_t* ray);
-vec2 ray3UV(ray3_t ray);
+vec2_t ray3UV(ray3_t ray);

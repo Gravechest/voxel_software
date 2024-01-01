@@ -1,21 +1,17 @@
 #pragma once
 
 #include "source.h"
+#include "dynamic_array.h"
 
-typedef struct{
-	uint block;
-}grid_component_t;
+#define GRID_DISCONNECTED 0xffff
 
 typedef struct{
 	float throughput;
-	uint ptr;
-	grid_component_t* component;
+	dynamic_array_t component;
 }power_grid_t;
 
-void removePowerGrid(uint node_ptr);
-void applyPowerGrid(uint base_ptr);
-grid_component_t* getPowerGridComponent(uint power_grid,uint node_ptr);
+void removePowerGrid(uint32_t node_ptr);
+void applyPowerGrid(uint32_t base_ptr);
 void powerGridTick();
 
-extern power_grid_t power_grid_array[12];
-extern uint power_grid_ptr;
+extern dynamic_array_t power_grid_array;

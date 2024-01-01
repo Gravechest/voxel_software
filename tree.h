@@ -2,6 +2,7 @@
 
 #include <stdbool.h> 
 
+#include "dynamic_array.h"
 #include "vec3.h"
 #include "source.h"
 #include "dda.h"
@@ -23,42 +24,31 @@ typedef struct{
 	ivec3 step;
 	uvec3 square_pos;
 
-	uint square_side;
+	uint32_t square_side;
 }ray3i_t;
 
 typedef struct{
-	int side;
-	union{
-		int node;
-		struct{
-			int node_a[4];
-			int side_a[4];
-		};
-	};
-	plane_t plane[4];
-}beam_result_t;
-
-typedef struct{
-	vec3 pos;
-	uint node;
+	vec3_t pos;
+	uint32_t node;
 }traverse_init_t;
 
-extern node_t* node_root;
-extern uint block_node_c;
+extern dynamic_array_t node_root;
+extern dynamic_array_t block_array;
+extern dynamic_array_t air_array;
 
-traverse_init_t initTraverse(vec3 pos);
-node_hit_t treeRay(ray3_t ray,uint node_ptr,vec3 ray_pos);
-node_hit_t treeRayI(ray3i_t ray,uint node_ptr);
-uint traverseTreeItt(ray3i_t ray,uint node_ptr);
-void setVoxel(uint x,uint y,uint z,uint depth,uint material,float ammount);
-void setVoxelSolid(uint x,uint y,uint z,uint depth,uint material);
-void removeVoxel(uint node_ptr);
-block_t* insideBlock(vec3 pos);
-uint getNode(int x,int y,int z,int depth);
-uint getNodeFromPos(vec3 pos,uint depth);
-ray3i_t ray3CreateI(vec3 pos,vec3 dir);
-float rayNodeGetDistance(vec3 ray_pos,ivec3 pos,int depth,vec3 angle,int side);
-float rayGetDistance(vec3 ray_pos,vec3 ray_dir);
-node_t treeTraverse(vec3 pos);
-fog_t treeRayFog(ray3_t ray,uint node_ptr,vec3 ray_pos,float max_distance);
-node_hit_t treeRayOnce(ray3_t ray,uint node_ptr,vec3 ray_pos);
+traverse_init_t initTraverse(vec3_t pos);
+node_hit_t treeRay(ray3_t ray,uint32_t node_ptr,vec3_t ray_pos);
+node_hit_t treeRayI(ray3i_t ray,uint32_t node_ptr);
+uint32_t traverseTreeItt(ray3i_t ray,uint32_t node_ptr);
+void setVoxel(uint32_t x,uint32_t y,uint32_t z,int depth,uint32_t material,float ammount);
+void setVoxelSolid(uint32_t x,uint32_t y,uint32_t z,uint32_t depth,uint32_t material);
+void removeVoxel(uint32_t node_ptr);
+block_t* insideBlock(vec3_t pos);
+uint32_t getNode(int x,int y,int z,int depth);
+uint32_t getNodeFromPos(vec3_t pos,uint32_t depth);
+ray3i_t ray3CreateI(vec3_t pos,vec3_t dir);
+float rayNodeGetDistance(vec3_t ray_pos,ivec3 pos,int depth,vec3_t angle,int side);
+float rayGetDistance(vec3_t ray_pos,vec3_t ray_dir);
+node_t treeTraverse(vec3_t pos);
+fog_t treeRayFog(ray3_t ray,uint32_t node_ptr,vec3_t ray_pos,float max_distance);
+node_hit_t treeRayOnce(ray3_t ray,uint32_t node_ptr,vec3_t ray_pos);

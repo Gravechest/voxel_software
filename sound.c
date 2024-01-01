@@ -16,7 +16,7 @@ int outSelect;
 int outSelectS;
 HWAVEOUT soundOut;
 
-SOUNDFILE sound_file[10];
+soundfile_t sound_file[10];
 
 LPDIRECTSOUND       directSoundH;
 LPDIRECTSOUNDBUFFER directSoundBP[16];
@@ -39,10 +39,10 @@ unsigned int wCursor;
 unsigned short *sbufp1;
 unsigned short *sbufp2;
 
-#define BUFFER_SIZE 2000000
+#define BUFFER_SIZE 200000
 
-SOUNDFILE loadSoundFile(char *name){
-	SOUNDFILE file;
+soundfile_t loadSoundFile(char *name){
+	soundfile_t file;
 	HANDLE h = CreateFileA(name,GENERIC_READ,0,0,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,0);
 	if(h!=-1){
 		file.sz = GetFileSize(h,0);
@@ -56,7 +56,7 @@ SOUNDFILE loadSoundFile(char *name){
 void initSound(HWND window){
 	sound_file[SOUND_STEP] = loadSoundFile("sfx/concrete_step.wav");
 	sound_file[SOUND_JUMP] = loadSoundFile("sfx/jump.wav");
-	sound_file[2] = loadSoundFile("sfx/gamemusic2.wav");
+	//sound_file[2] = loadSoundFile("sfx/gamemusic2.wav");
 	sound_file[SOUND_PUNCH] = loadSoundFile("sfx/punch.wav");
 	DirectSoundCreate(0,&directSoundH,0);
 	directSoundH->lpVtbl->SetCooperativeLevel(directSoundH,window,DSSCL_PRIORITY);
@@ -97,7 +97,7 @@ void initSound(HWND window){
 #define BOUNCE_AMMOUNT 4
 #define BOUNCE_QUALITY 16
 
-uint sound_length;
+uint32_t sound_length;
 
 typedef struct{
 	float dst;
@@ -105,34 +105,34 @@ typedef struct{
 	float direction;
 }prop_t;
 
-prop_t getRayInfo(traverse_init_t init,vec3 angle,vec3 pos){
+prop_t getRayInfo(traverse_init_t init,vec3_t angle,vec3_t pos){
 	node_hit_t hit = treeRay(ray3Create(init.pos,angle),init.node,pos);
 	if(!hit.node)
 		return (prop_t){-1.0f};
-	node_t node = node_root[hit.node];
-	vec3 block_pos;
-	float block_size = (float)MAP_SIZE / (1 << node.depth) * 2.0f;
-	block_pos.x = node.pos.x * block_size;
-	block_pos.y = node.pos.y * block_size;
-	block_pos.z = node.pos.z * block_size;
+	node_t* node = dynamicArrayGet(node_root,hit.node);
+	vec3_t block_pos;
+	float block_size = (float)MAP_SIZE / (1 << node->depth) * 2.0f;
+	block_pos.x = node->pos.x * block_size;
+	block_pos.y = node->pos.y * block_size;
+	block_pos.z = node->pos.z * block_size;
 	plane_t plane = getPlane(block_pos,angle,hit.side,block_size);
-	vec3 plane_pos = vec3subvec3R(plane.pos,pos);
+	vec3_t plane_pos = vec3subvec3R(plane.pos,pos);
 	return (prop_t){tAbsf(rayIntersectPlane(plane_pos,angle,plane.normal)),(ivec3){plane.x,plane.y,plane.z},plane.normal.a[plane.z]};
 }
 #include <math.h>
-void soundRay(SOUNDFILE sound,float* f_buffer,vec3 pos,ivec3 normal,float direction,uint depth,float volume,int delay){
+void soundRay(soundfile_t sound,float* f_buffer,vec3_t pos,ivec3 normal,float direction,uint32_t depth,float volume,int delay){
 	if(depth > 2)
 		return;
 	if(delay + sound.sz / 2 - 1000 >= BUFFER_SIZE / 2)
 		return;
 	traverse_init_t init = initTraverse(pos);
-	vec3 to_player_direction = vec3normalizeR(vec3subvec3R(camera.pos,pos));
+	vec3_t to_player_direction = vec3normalizeR(vec3subvec3R(camera.pos,pos));
 	float to_player = getRayInfo(init,to_player_direction,pos).dst;
 	float sound_direction = atan2f(to_player_direction.x,to_player_direction.y) / M_PI;
 	sound_direction += camera.dir.x / M_PI * 2.0f + 1.0f;
 	sound_direction = tFract((sound_direction + 1.0f) * 0.5f) * 2.0f - 1.0f;
 	sound_direction *= 1.0f - to_player_direction.z;
-	vec3 perpendicular = getLookAngle((vec2){camera.dir.x + M_PI * 0.25f,camera.dir.y});
+	vec3_t perpendicular = getLookAngle((vec2_t){camera.dir.x + M_PI * 0.25f,camera.dir.y});
 	vec3mul(&perpendicular,5.0f);
 	float left_distance = vec3distance(pos,vec3subvec3R(camera.pos,perpendicular));
 	float right_distance = vec3distance(pos,vec3addvec3R(camera.pos,perpendicular));
@@ -160,7 +160,7 @@ void soundRay(SOUNDFILE sound,float* f_buffer,vec3 pos,ivec3 normal,float direct
 	if(depth != 0){
 		for(float i = -1.5f;i <= 1.5f;i += 1.0f){
 			for(float j = -1.5f;j <= 1.5f;j += 1.0f){
-				vec3 angle;
+				vec3_t angle;
 				angle.a[normal.z] = direction;
 				angle.a[normal.x] = i;
 				angle.a[normal.y] = j;
@@ -168,7 +168,7 @@ void soundRay(SOUNDFILE sound,float* f_buffer,vec3 pos,ivec3 normal,float direct
 				if(prop.dst <= 0.0f)
 					continue;
 				int sample_delay = delay + prop.dst * 250.0f;
-				vec3 pos_n = vec3addvec3R(pos,vec3mulR(vec3normalizeR(angle),prop.dst - 0.001f));
+				vec3_t pos_n = vec3addvec3R(pos,vec3mulR(vec3normalizeR(angle),prop.dst - 0.001f));
 				soundRay(sound,f_buffer,pos_n,prop.normal,prop.direction,depth + 1,volume / BOUNCE_AMMOUNT * 1.0f,sample_delay);
 			}
 		}
@@ -179,7 +179,7 @@ void soundRay(SOUNDFILE sound,float* f_buffer,vec3 pos,ivec3 normal,float direct
 		direction = i & 1 ? -1.0f : 1.0f;
 		for(float i = -1.0f;i <= 1.0f;i += 2.0f){
 			for(float j = -1.0f;j <= 1.0f;j += 2.0f){
-				vec3 angle;
+				vec3_t angle;
 				angle.a[normal.z] = direction;
 				angle.a[normal.x] = i;
 				angle.a[normal.y] = j;
@@ -187,24 +187,25 @@ void soundRay(SOUNDFILE sound,float* f_buffer,vec3 pos,ivec3 normal,float direct
 				if(prop.dst <= 0.0f)
 					continue;
 				int sample_delay = delay + prop.dst * 250.0f;
-				vec3 pos_n = vec3addvec3R(pos,vec3mulR(vec3normalizeR(angle),prop.dst - 0.001f));
+				vec3_t pos_n = vec3addvec3R(pos,vec3mulR(vec3normalizeR(angle),prop.dst - 0.001f));
 				soundRay(sound,f_buffer,pos_n,prop.normal,prop.direction,depth + 1,volume / BOUNCE_AMMOUNT * 1.0f,sample_delay);
 			}
 		}
 	}
 }
 
-void playSound(uint sound,vec3 pos){
-	SOUNDFILE file = sound_file[sound];
+void playSound(uint32_t sound,vec3_t pos){
+	return;
+	soundfile_t file = sound_file[sound];
 	if(!file.sz)
 		return;
-	float* f_buffer = MALLOC_ZERO(BUFFER_SIZE * sizeof(float));
+	float* f_buffer = tMallocZero(BUFFER_SIZE * sizeof(float));
 	soundRay(file,f_buffer,pos,(ivec3){VEC3_X,VEC3_Y,VEC3_Z},0.0f,0,1.0f / BOUNCE_AMMOUNT,0);
 	directSoundBS_long->lpVtbl->Lock(directSoundBS_long,0,0,&sbufp1,&sbufp1Sz,&sbufp2,&sbufp2Sz,DSBLOCK_ENTIREBUFFER);
 	for(int i = 0;i < BUFFER_SIZE / 4;i++)
 		sbufp1[i] = f_buffer[i] + sbufp1[i + file.sz];
 	sound_length = 0;
-	MFREE(f_buffer);
+	tFree(f_buffer);
 	directSoundBS_long->lpVtbl->Unlock(directSoundBS_long,sbufp1,sbufp1Sz,sbufp2,sbufp2Sz);
 	directSoundBS_long->lpVtbl->SetCurrentPosition(directSoundBS_long,0);
 	directSoundBS_long->lpVtbl->Play(directSoundBS_long,0,0,0);

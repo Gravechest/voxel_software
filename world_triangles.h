@@ -9,4 +9,4 @@
 
 extern char mask[RD_MASK_X][RD_MASK_Y];
 
-void sceneGatherTriangles(uint node_ptr);
+void sceneGatherTriangles(uint32_t node_ptr);

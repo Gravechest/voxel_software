@@ -12,7 +12,7 @@ enum{
 typedef struct{
 	unsigned short *data;
 	unsigned int sz;
-}SOUNDFILE;
+}soundfile_t;
 
 void initSound(HWND window);
-void playSound(uint sound,vec3 pos);
+void playSound(uint32_t sound,vec3_t pos);

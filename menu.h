@@ -3,4 +3,4 @@
 void executeButton(ivec2 cursor);
 void drawButton();
 
-extern uint menu_select;
+extern uint32_t menu_select;

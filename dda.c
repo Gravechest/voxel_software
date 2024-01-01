@@ -2,7 +2,7 @@
 #include "tmath.h"
 #include "source.h"
 
-ray3_t ray3Create(vec3 pos,vec3 dir){
+ray3_t ray3Create(vec3_t pos,vec3_t dir){
 	ray3_t ray;
 
 	ray.square_side = 0;
@@ -14,7 +14,7 @@ ray3_t ray3Create(vec3 pos,vec3 dir){
 	ray.step.y = ray.dir.y < 0.0f ? -1 : 1;
 	ray.step.z = ray.dir.z < 0.0f ? -1 : 1;
 
-	vec3 fract_pos;
+	vec3_t fract_pos;
 	fract_pos.x = tFractUnsigned(ray.pos.x);
 	fract_pos.y = tFractUnsigned(ray.pos.y);
 	fract_pos.z = tFractUnsigned(ray.pos.z);
@@ -29,7 +29,7 @@ ray3_t ray3Create(vec3 pos,vec3 dir){
 	return ray;
 }
 
-ray2_t ray2Create(vec2 pos,vec2 dir){
+ray2_t ray2Create(vec2_t pos,vec2_t dir){
 	ray2_t ray;
 	ray.pos = pos;
 	ray.dir = dir;
@@ -80,20 +80,20 @@ void ray3Itterate(ray3_t* ray){
 	ray->square_side = VEC3_Z;
 }
 
-vec2 ray3UV(ray3_t ray){
-	vec2 wall;
+vec2_t ray3UV(ray3_t ray){
+	vec2_t wall;
 	switch(ray.square_side){
 	case VEC3_X:
 		wall.x = ray.pos.y + (ray.side.x - ray.delta.x) * ray.dir.y;
 		wall.y = ray.pos.z + (ray.side.x - ray.delta.x) * ray.dir.z;
-		return (vec2){wall.x - (int)wall.x,wall.y - (int)wall.y};
+		return (vec2_t){wall.x - (int)wall.x,wall.y - (int)wall.y};
 	case VEC3_Y:
 		wall.x = ray.pos.x + (ray.side.y - ray.delta.y) * ray.dir.x;
 		wall.y = ray.pos.z + (ray.side.y - ray.delta.y) * ray.dir.z;
-		return (vec2){wall.x - (int)wall.x,wall.y - (int)wall.y};
+		return (vec2_t){wall.x - (int)wall.x,wall.y - (int)wall.y};
 	case VEC3_Z:
 		wall.x = ray.pos.x + (ray.side.z - ray.delta.z) * ray.dir.x;
 		wall.y = ray.pos.y + (ray.side.z - ray.delta.z) * ray.dir.y;
-		return (vec2){wall.x - (int)wall.x,wall.y - (int)wall.y};
+		return (vec2_t){wall.x - (int)wall.x,wall.y - (int)wall.y};
 	}
 }

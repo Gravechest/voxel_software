@@ -14,17 +14,17 @@
 
 #define TEXTURE_SCALE (2048.0f * MAP_SIZE)
 #define FOG_DISTANCE 0.0005f
-#define SUN_ANGLE (vec3){-3.0f,-0.5f,1.0f}
+#define SUN_ANGLE (vec3_t){-3.0f,-0.5f,1.0f}
 #define RES_SCALE 1
-#define FOV (vec2){600.0f / RES_SCALE,600.0f / RES_SCALE}
+#define FOV (vec2_t){600.0f / RES_SCALE,600.0f / RES_SCALE}
 
-#define WND_RESOLUTION (vec2){1024 / RES_SCALE,1920 / RES_SCALE}
+#define WND_RESOLUTION (vec2_t){1024 / RES_SCALE,1920 / RES_SCALE}
 #define WND_RESOLUTION_Y (1920 / RES_SCALE)
 #define WND_RESOLUTION_X (1024 / RES_SCALE)
 
 #define WND_SIZE_Y 1920
 #define WND_SIZE_X 1080
-#define WND_SIZE (vec2){WND_SIZE_Y,WND_SIZE_X}
+#define WND_SIZE (vec2_t){WND_SIZE_Y,WND_SIZE_X}
 
 #define MAP_SIZE_BIT 8
 
@@ -38,6 +38,9 @@
 
 #define DRAW_MULTITHREAD 1
 
+#define BLOCK_AIR 0xff
+#define BLOCK_PARENT 0xfe
+
 enum{
 	BLOCK_WHITE,
 	BLOCK_POWDER,
@@ -45,17 +48,17 @@ enum{
 	BLOCK_WIRE,
 	BLOCK_LAMP,
 	BLOCK_SWITCH,
-	BLOCK_SANDSTONE,
+	BLOCK_STONE,
 	BLOCK_SKIN,
-	BLOCK_SPAWNLIGHT
+	BLOCK_SPAWNLIGHT,
+	BLOCK_COAL,
+	BLOCK_GENERATOR
 };
 
 enum{
 	GAMEMODE_SURVIVAL,
 	GAMEMODE_CREATIVE
 };
-
-typedef unsigned int uint;
 
 typedef union{
 	struct{
@@ -83,10 +86,10 @@ typedef union{
 }pixel_t;
 
 typedef struct{
-	vec3 pos;
-	vec2 dir;
+	vec3_t pos;
+	vec2_t dir;
 	vec4 tri;
-	vec3 vel;
+	vec3_t vel;
 	float exposure;
 }camera_t;
 
@@ -96,14 +99,14 @@ typedef struct{
 }vram_t;
 
 typedef struct{
-	vec3 pos;
-	vec3 normal;
+	vec3_t pos;
+	vec3_t normal;
 	int x,y,z;
 }plane_t;
 
 typedef struct{
-	uint size;
-	uint mipmap_level_count;
+	uint32_t size;
+	uint32_t mipmap_level_count;
 	pixel_t* data;
 	pixel_t* data_rev;
 }texture_t;
@@ -118,21 +121,17 @@ typedef struct{
 typedef struct{
 	int flags;
 	texture_t texture;
-	vec3 luminance;
+	vec3_t luminance;
 	float light_emit;
-	vec2 texture_pos;
-	vec2 texture_size;
+	vec2_t texture_pos;
+	vec2_t texture_size;
 	float hardness;
 }material_t;
 
 typedef struct{
-	vec3* luminance_p;
-}block_side_t;
-
-typedef struct{
-	uint16_t material;
+	uint32_t node;
 	union{
-		block_side_t side[6];
+		vec3_t* luminance[6];
 		struct{
 			float ammount;
 			float ammount_buffer;
@@ -144,7 +143,8 @@ typedef struct{
 }block_t;
 
 typedef struct{
-	vec3 luminance;
+	uint32_t node;
+	vec3_t luminance;
 	int entity;
 	float o2;
 	/*
@@ -155,25 +155,24 @@ typedef struct{
 
 typedef struct{
 	union{
-		uint child[2][2][2];
-		uint child_s[8];
+		uint32_t child[2][2][2];
+		uint32_t child_s[8];
 	};
-	uint parent;
 	ivec3 pos;
-	block_t* block;
-	air_t* air;
-	unsigned char depth;
-	unsigned char zone;
+	uint32_t parent;
+	uint32_t index;
+	uint8_t type;
+	uint8_t depth;
 }node_t;
 
 typedef struct{
 	node_t* node;
-	uint side;
+	uint32_t side;
 }light_new_stack_t;
 
 typedef struct{
 	int type;
-	uint ammount;
+	uint32_t ammount;
 }inventoryslot_t;
 
 #define ENTITY_LUMINANT (1 << 0)
@@ -187,24 +186,24 @@ extern int global_tick;
 extern float camera_exposure;
 extern bool setting_smooth_lighting;
 extern bool setting_fly;
-extern volatile uint light_new_stack_ptr;
+extern volatile uint32_t light_new_stack_ptr;
 extern volatile light_new_stack_t light_new_stack[];
 extern bool context_is_gl;
 extern pixel_t* texture_atlas;
 extern int block_type;
 extern int tool_select;
 extern inventoryslot_t inventory_slot[9];
-extern uint border_block_table[6][4];
+extern uint32_t border_block_table[6][4];
 extern int main_thread_status;
 
-vec3 pointToScreenZ(vec3 point);
-plane_t getPlane(vec3 pos,vec3 dir,uint side,float block_size);
-vec3 getLookAngle(vec2 angle);
-vec2 sampleCube(vec3 v,uint* faceIndex);
-float rayIntersectPlane(vec3 pos,vec3 dir,vec3 plane);
-vec3 getLuminance(block_side_t side,vec2 uv,uint depth);
-vec3 getRayAngle(uint x,uint y);
-void drawLine(vec2 pos_1,vec2 pos_2,pixel_t color);
-float sdCube(vec3 point,vec3 cube,float cube_size);
-void calculateDynamicLight(vec3 pos,uint node_ptr,float radius,vec3 color);
-vec3 pointToScreenRenderer(vec3 point);
+vec3_t pointToScreenZ(vec3_t point);
+plane_t getPlane(vec3_t pos,vec3_t dir,uint32_t side,float block_size);
+vec3_t getLookAngle(vec2_t angle);
+vec2_t sampleCube(vec3_t v,uint32_t* faceIndex);
+float rayIntersectPlane(vec3_t pos,vec3_t dir,vec3_t plane);
+vec3_t getLuminance(vec3_t* luminance,vec2_t uv,uint32_t depth);
+vec3_t getRayAngle(uint32_t x,uint32_t y);
+void drawLine(vec2_t pos_1,vec2_t pos_2,pixel_t color);
+float sdCube(vec3_t point,vec3_t cube,float cube_size);
+void calculateDynamicLight(vec3_t pos,uint32_t node_ptr,float radius,vec3_t color);
+vec3_t pointToScreenRenderer(vec3_t point);

@@ -15,7 +15,7 @@ typedef struct{
 	int size;
 }button_t;
 
-uint menu_select;
+uint32_t menu_select;
 
 button_t button[] = {
 	{.pos = {WND_RESOLUTION_X / 2 + 60,WND_RESOLUTION_Y / 2 + 120},.size = 40},
@@ -23,7 +23,7 @@ button_t button[] = {
 	{.pos = {WND_RESOLUTION_X / 2 - 20,WND_RESOLUTION_Y / 2 - 120},.size = 40}
 };
 
-uint buttonCount(){
+uint32_t buttonCount(){
 	return sizeof(button) / sizeof(button_t);
 }
 
@@ -65,8 +65,8 @@ void drawButton(){
 	for(int i = 0;i < buttonCount();i++){
 		switch(i){
 		case BTN_CLOSE:
-			drawLine((vec2){button[i].pos.x,button[i].pos.y},vec2addR((vec2){button[i].pos.x,button[i].pos.y},button[i].size),(pixel_t){0,0,190});
-			drawLine((vec2){button[i].pos.x + button[i].size,button[i].pos.y},(vec2){button[i].pos.x,button[i].pos.y + button[i].size},(pixel_t){0,0,190});
+			drawLine((vec2_t){button[i].pos.x,button[i].pos.y},vec2addR((vec2_t){button[i].pos.x,button[i].pos.y},button[i].size),(pixel_t){0,0,190});
+			drawLine((vec2_t){button[i].pos.x + button[i].size,button[i].pos.y},(vec2_t){button[i].pos.x,button[i].pos.y + button[i].size},(pixel_t){0,0,190});
 			break;
 		case BTN_SMOOTH_LIGHTING:
 			if(!setting_smooth_lighting){
@@ -85,7 +85,7 @@ void drawButton(){
 			for(int x = 0;x < button[i].size;x++){
 				for(int y = 0;y < button[i].size;y++){
 					pixel_t color;
-					uint size_squared = button[i].size * button[i].size;
+					uint32_t size_squared = button[i].size * button[i].size;
 					color.r = pixel[0].r * (button[i].size - x) * (button[i].size - y) / size_squared;
 					color.g = pixel[0].g * (button[i].size - x) * (button[i].size - y) / size_squared;
 					color.b = pixel[0].b * (button[i].size - x) * (button[i].size - y) / size_squared;

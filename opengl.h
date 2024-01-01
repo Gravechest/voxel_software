@@ -1,7 +1,10 @@
 #pragma once
 
 #include <Windows.h>
+
 #include "source.h"
+
+#define TEXTURE_ATLAS_SIZE 2048
 
 #define GL_ARRAY_BUFFER 0x8892
 #define GL_DYNAMIC_DRAW 0x88E8
@@ -17,39 +20,39 @@
 #define GL_TEXTURE6 0x84C6
 
 typedef struct{
-	vec3 pos;
-	vec2 texture_pos;
-	vec3 lighting;
+	vec3_t pos;
+	vec2_t texture_pos;
+	vec3_t lighting;
 	float distance;
-	vec3 fog_color;
-}triangles_t;
+	vec3_t fog_color;
+}triangle_t;
 
 typedef struct{
-	vec2 pos;
-	vec3 lighting;
+	vec2_t pos;
+	vec3_t lighting;
 }triangle_ui_t;
 
-extern uint triangle_count;
-extern triangles_t* triangles;
-extern unsigned int shaderprogram;
-extern unsigned int shader_program_ui;
-extern unsigned int shader_program_plain_texture;
-extern unsigned int VBO_plain_texture;
-extern unsigned int shader_program_plain_texture;
+extern uint32_t triangle_count;
+extern triangle_t* triangles;
+extern uint32_t shaderprogram;
+extern uint32_t shader_program_ui;
+extern uint32_t shader_program_plain_texture;
+extern uint32_t VBO_plain_texture;
+extern uint32_t shader_program_plain_texture;
 
-void drawBlockOutline(triangles_t* triangles);
-void initGL(HDC context);
+void drawBlockOutline(triangle_t* triangles);
+void initGL(void* context);
 
-void (*glBufferData)(unsigned int target,unsigned int size,const void *data,unsigned int usage);
-void (*glCreateBuffers)(unsigned int n,unsigned int *buffers);
-void (*glBindBuffer)(unsigned int target,unsigned int buffer);
-void (*glEnableVertexAttribArray)(unsigned int index);
-void (*glVertexAttribPointer)(unsigned int index,int size,unsigned int type,unsigned char normalized,unsigned int stride,const void *pointer);
-void (*glShaderSource)(unsigned int shader,int count,const char **string,int *length);
-void (*glCompileShader)(unsigned int shader);
-void (*glAttachShader)(unsigned int program,unsigned int shader);
-void (*glLinkProgram)(unsigned int program);
-void (*glUseProgram)(unsigned int program);
-void (*glGenerateMipmap)(unsigned int target);
-void (*glActiveTexture)(unsigned int texture);
+void (*glBufferData)(uint32_t target,uint32_t size,const void *data,uint32_t usage);
+void (*glCreateBuffers)(uint32_t n,uint32_t *buffers);
+void (*glBindBuffer)(uint32_t target,uint32_t buffer);
+void (*glEnableVertexAttribArray)(uint32_t index);
+void (*glVertexAttribPointer)(uint32_t index,int size,uint32_t type,unsigned char normalized,uint32_t stride,const void *pointer);
+void (*glShaderSource)(uint32_t shader,int count,const char **string,int *length);
+void (*glCompileShader)(uint32_t shader);
+void (*glAttachShader)(uint32_t program,uint32_t shader);
+void (*glLinkProgram)(uint32_t program);
+void (*glUseProgram)(uint32_t program);
+void (*glGenerateMipmap)(uint32_t target);
+void (*glActiveTexture)(uint32_t texture);
 void (*glUniform4f)(int loc,float v1,float v2,float v3,float v4);
