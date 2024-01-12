@@ -2,9 +2,10 @@
 
 #include "source.h"
 
-#define ENTITY_AMMOUNT (1 << 12)
+#define ENTITY_AMMOUNT 0xffff
 
 enum{
+	ENTITY_PARTICLE,
 	ENTITY_ENEMY = 2,
 	ENTITY_WATER = 4
 };

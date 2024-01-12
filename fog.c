@@ -15,13 +15,17 @@ static vec2_t lookDirectionTable[6] = {
 };
 
 void calculateNodeLuminance(node_t* node,uint32_t quality){
+	air_t* air = dynamicArrayGet(air_array,node->index);
+
+	if(air->luminance.r && TRND1 > 0.05f)
+		return;
+
 	vec3_t s_color = VEC3_ZERO;
-	float block_size = (float)((1 << 20) >> node->depth) * MAP_SIZE_INV;
+	float block_size = getBlockSize(node->depth);
 	vec3_t node_pos = {node->pos.x,node->pos.y,node->pos.z};
 	vec3add(&node_pos,0.5f);
 	vec3mul(&node_pos,block_size);
 	traverse_init_t init = initTraverse(node_pos);
-	float increment = (M_PI * 2.0f) / quality;
 	for(int i = 0;i < 6;i++){
 		vec2_t dir = lookDirectionTable[i];
 		dir.x = -1.0f + 1.0f / (quality + 1);
@@ -41,19 +45,10 @@ void calculateNodeLuminance(node_t* node,uint32_t quality){
 			dir.x += 2.0f / quality;
 		}
 	}
-	/*
-	for(int i = 0;i < quality * quality;i++){
-		vec3_t luminance = rayGetLuminance(node_pos,init.pos,vec3rnd(),init.node,0);
-		if(luminance.r < 0.0f || luminance.g < 0.0f || luminance.b < 0.0f)
-			continue;
-		if(luminance.r > 999.0f || luminance.g > 999.0f || luminance.b > 999.0f)
-			continue;
-		vec3addvec3(&s_color,luminance);
-	}
-	vec3div(&s_color,quality * quality);
-	*/
 	vec3div(&s_color,quality * quality * 6);
-	air_t* air = dynamicArrayGet(air_array,node->index);
+	
+	if(!s_color.b)
+		s_color.b = 0.001f;
 	air->luminance = (vec3_t){s_color.b,s_color.g,s_color.r};
 }
 

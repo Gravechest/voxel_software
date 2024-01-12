@@ -115,7 +115,7 @@ prop_t getRayInfo(traverse_init_t init,vec3_t angle,vec3_t pos){
 	block_pos.x = node->pos.x * block_size;
 	block_pos.y = node->pos.y * block_size;
 	block_pos.z = node->pos.z * block_size;
-	plane_t plane = getPlane(block_pos,angle,hit.side,block_size);
+	plane_ray_t plane = getPlane(block_pos,angle,hit.side,block_size);
 	vec3_t plane_pos = vec3subvec3R(plane.pos,pos);
 	return (prop_t){tAbsf(rayIntersectPlane(plane_pos,angle,plane.normal)),(ivec3){plane.x,plane.y,plane.z},plane.normal.a[plane.z]};
 }

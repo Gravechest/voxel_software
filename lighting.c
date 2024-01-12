@@ -15,12 +15,12 @@ static vec2_t lookDirectionTable[6] = {
 };
 
 vec3_t normal_table[6] = {
-	{1.0f,0.0f,0.0f},
 	{-1.0f,0.0f,0.0f},
-	{0.0f,1.0f,0.0f},
+	{1.0f,0.0f,0.0f},
 	{0.0f,-1.0f,0.0f},
-	{0.0f,0.0f,1.0f},
-	{0.0f,0.0f,-1.0f}
+	{0.0f,1.0f,0.0f},
+	{0.0f,0.0f,-1.0f},
+	{0.0f,0.0f,	1.0f}
 };
 
 int getLightmapSize(int depth){
@@ -38,7 +38,10 @@ void lightNewStackPut(uint32_t node_index,block_t* block,uint32_t side){
 
 	uint32_t size = getLightmapSize(node->depth);
 
-	block->luminance[side] = tMallocZero(sizeof(vec3_t) * (size + 1) * (size + 1));
+	if(node->type == BLOCK_SPHERE)
+		block->luminance[side] = tMallocZero(sizeof(vec3_t) * 16 * 16);
+	else
+		block->luminance[side] = tMallocZero(sizeof(vec3_t) * (size + 1) * (size + 1));
 }
 
 bool lightMapRePosition(vec3_t* pos,int side){
@@ -175,11 +178,11 @@ vec3_t sideGetLuminance(vec3_t ray_pos,vec3_t angle,node_hit_t result,uint32_t d
 		return vec3mulvec3R(rayGetLuminance(pos_new,init.pos,angle_f,init.node,depth + 1),filter);
 	}
 	vec3_t block_pos;
-	float block_size = (float)MAP_SIZE / (1 << node->depth) * 2.0f;
+	float block_size = getBlockSize(node->depth);
 	block_pos.x = node->pos.x * block_size;
 	block_pos.y = node->pos.y * block_size;
 	block_pos.z = node->pos.z * block_size;
-	plane_t plane = getPlane(block_pos,angle,result.side,block_size);
+	plane_ray_t plane = getPlane(block_pos,angle,result.side,block_size);
 	vec3_t plane_pos = vec3subvec3R(plane.pos,ray_pos);
 	float dst = rayIntersectPlane(plane_pos,angle,plane.normal);
 	vec3_t hit_pos = vec3addvec3R(ray_pos,vec3mulR(angle,dst));
@@ -188,11 +191,9 @@ vec3_t sideGetLuminance(vec3_t ray_pos,vec3_t angle,node_hit_t result,uint32_t d
 		(hit_pos.a[plane.y] - plane.pos.a[plane.y]) / block_size
 	};
 	vec2_t texture_uv = {
-		hit_pos.a[plane.x] / block_size,
-		hit_pos.a[plane.y] / block_size
+		tFract(hit_pos.a[plane.x] * 0.25f),
+		tFract(hit_pos.a[plane.y] * 0.25f)
 	};
-	float texture_x = texture_uv.x * TEXTURE_SCALE / material.texture.size / (8 << node->depth);
-	float texture_y = texture_uv.y * TEXTURE_SCALE / material.texture.size / (8 << node->depth);
 			
 	int side = result.side * 2 + (angle.a[result.side] < 0.0f);
 	uv.x = tMaxf(tMinf(uv.x,1.0f),0.0f);
@@ -200,16 +201,11 @@ vec3_t sideGetLuminance(vec3_t ray_pos,vec3_t angle,node_hit_t result,uint32_t d
 
 	vec3_t hit_block_luminance = getLuminance(block->luminance[side],uv,node->depth);
 
-	vec3_t texture;
-	if(material.texture.data){
-		uint32_t texture_x_i = (uint32_t)(tFract(texture_x) * material.texture.size);
-		uint32_t texture_y_i = (uint32_t)(tFract(texture_y) * material.texture.size);
-		pixel_t text = material.texture.data[texture_x_i * material.texture.size + texture_y_i];
-
-		texture = (vec3_t){text.r / 255.0f,text.g / 255.0f,text.b / 255.0f};
-	}
-	else
-		texture = material.luminance;
+	int ty = (texture_uv.x * material.texture_size.x + material.texture_pos.x) * 2047.0f;
+	int tx = (texture_uv.y * material.texture_size.y + material.texture_pos.y) * 2047.0f;
+	
+	pixel_t text = texture_atlas[tx * 2048 + ty];
+	vec3_t texture = (vec3_t){text.r / 255.0f,text.g / 255.0f,text.b / 255.0f};
 
 	return vec3mulvec3R(texture,hit_block_luminance);
 }
@@ -227,40 +223,28 @@ vec3_t rayGetLuminanceDir(vec3_t init_pos,vec2_t direction,uint32_t init_node,ve
 	return rayGetLuminance(ray_pos,init_pos,getLookAngle(direction),init_node,0);
 }
 
-void setLightMap(vec3_t* color,vec3_t pos,int side,uint32_t quality){
-	int p_x = (int[]){VEC3_Y,VEC3_X,VEC3_X}[side >> 1];
-	int p_y = (int[]){VEC3_Z,VEC3_Z,VEC3_Y}[side >> 1];
+void setLightMap(vec3_t* color,vec3_t pos,vec3_t normal,uint32_t quality){
 	if(!color)
 		return;
-	vec2_t dir = lookDirectionTable[side];
-	vec3_t normal = normal_table[side];
 	traverse_init_t init = initTraverse(pos);
 	node_t begin_node = treeTraverse(pos);
-	if(begin_node.type != BLOCK_AIR && !(material_array[begin_node.type].flags & MAT_LIQUID)){
+	if(begin_node.type != BLOCK_AIR && !(material_array[begin_node.type].flags & MAT_LIQUID) && begin_node.type != BLOCK_SPHERE){
 		*color = VEC3_ZERO;
 		return;
 	}
-	dir.x = -1.0f + 1.0f / (quality + 1);
-	dir.y = -1.0f + 1.0f / (quality + 1);
 	vec3_t s_color = VEC3_ZERO;
 	float weight_total = 0.0f;
 	for(int x = 0;x < quality;x++){
 		for(int y = 0;y < quality;y++){
-			vec3_t angle;
-			angle.a[p_x] = dir.x;
-			angle.a[p_y] = dir.y;
-			angle.a[side >> 1] = 1.0f - (tAbsf(dir.x) + tAbsf(dir.y)) * 0.5f;
-			if(!(side & 1))
-				angle.a[side >> 1] = -angle.a[side >> 1];
+			vec3_t angle = getRayAnglePlane(normal,(float)x / quality * 2.0f - 1.0f,(float)y / quality * 2.0f - 1.0f);
+			//printf("%f:%f:%f & ",normal.x,normal.y,normal.z);
+			//printf("%f:%f:%f\n",angle.x,angle.y,angle.z);
 			float weight = tAbsf(vec3dotR(angle,normal));
 			vec3_t luminance = rayGetLuminance(pos,init.pos,angle,init.node,0);
 			vec3mul(&luminance,weight);
 			vec3addvec3(&s_color,luminance);
 			weight_total += weight;
-			dir.y += 2.0f / quality;
 		}
-		dir.y -= 2.0f;
-		dir.x += 2.0f / quality;
 	}
 	vec3div(&s_color,weight_total);
 	*color = s_color;
@@ -281,136 +265,29 @@ vec3_t posNew(vec3_t pos,float size,int v_x,int v_y){
 	return (vec3_t){-1.0f,0.0f,0.0f};
 }
 
-void setLightSideBig(vec3_t* color,vec3_t pos,int side,int depth,uint32_t quality){
-	if(!color)
-		return;
-	vec3add(&pos,0.5f);
-	pos.a[side >> 1] -= 0.501f - (float)(side & 1) * 1.02f;
-
-	uint32_t v_x = (int[]){VEC3_Y,VEC3_X,VEC3_X}[side >> 1];
-	uint32_t v_y = (int[]){VEC3_Z,VEC3_Z,VEC3_Y}[side >> 1];
-
-	uint32_t size = GETLIGHTMAPSIZE(depth);
-
-	pos.a[v_x] -= 0.5f - 0.5f / size;
-	pos.a[v_y] -= 0.5f - 0.5f / size;
-
-	for(int x = 1;x < size + 1;x++){
-		for(int y = 1;y < size + 1;y++){
-			vec3_t l_pos = vec3divR(pos,(float)(1 << depth) * 0.5f);
-			vec3mul(&l_pos,MAP_SIZE);
-			if(insideBlock(l_pos)){
-				color[x * (size + 2) + y] = (vec3_t){1.0f,1.0f,0.0f};
-				continue;
-				l_pos = posNew(pos,size,v_x,v_y);
-				if(l_pos.x == -1.0f)
-					continue;
-			}
-			setLightMap(&color[x * (size + 2) + y],l_pos,side,quality);
-			vec3_t result = color[x * (size + 2) + y];
-			if(!result.r && !result.g && !result.b){
-				vec3_t avg_color = VEC3_ZERO;
-				uint32_t lm_size = 1 << tMax(LM_MAXDEPTH - depth,0);
-				int count = 0;
-				for(int i = 0;i < 4;i++){
-					int dx = (int[]){0,0,-1,1}[i] + x;
-					int dy = (int[]){-1,1,0,0}[i] + y;
-					vec3_t neighbour_pos = pos;
-					neighbour_pos.a[v_x] += 1.0f / size * dx;
-					neighbour_pos.a[v_y] += 1.0f / size * dy;
-					if(!isExposed(neighbour_pos))
-						continue;
-					count++;
-					vec3addvec3(&avg_color,color[dx * (lm_size + 2) + dy]);
-				}
-				color[x * (lm_size + 2) + y] = vec3mulR(avg_color,1.0f / count);
-			}
-			pos.a[v_y] += 1.0f / size;
-		}
-		pos.a[v_y] -= 1.0f;
-		pos.a[v_x] += 1.0f / size;
-	}
-}
-
-void setLightSideBigSingle(vec3_t* color,vec3_t pos,uint32_t side,uint32_t depth,uint32_t x,uint32_t y,uint32_t quality){
-	vec3add(&pos,0.5f);
-	pos.a[side >> 1] -= 0.501f - (float)(side & 1) * 1.002f;
-
-	int v_x = (int[]){VEC3_Y,VEC3_X,VEC3_X}[side >> 1];
-	int v_y = (int[]){VEC3_Z,VEC3_Z,VEC3_Y}[side >> 1];
-	uint32_t size = GETLIGHTMAPSIZE(depth);
-
-	pos.a[v_x] -= 0.5f - 0.5f / size;
-	pos.a[v_y] -= 0.5f - 0.5f / size;
-
-	pos.a[v_x] += 1.0f / size * x;
-	pos.a[v_y] += 1.0f / size * y;
-	vec3div(&pos,(float)(1 << depth) * 0.5f);
-	vec3mul(&pos,MAP_SIZE);
-	setLightMap(color,pos,side,quality);
-}
-
-void setLightSide(vec3_t* color,vec3_t pos,int side,int depth){
-	vec3add(&pos,0.5f);
-	pos.a[side >> 1] -= 0.501f - (float)(side & 1) * 1.02f;
-	vec3div(&pos,(float)(1 << depth) * 0.5f);
-	vec3mul(&pos,MAP_SIZE);
-	setLightMap(color,pos,side,LM_SIZE);
-}
+#include <Windows.h>
 
 void updateLightMapSide(node_t node,vec3_t* lightmap,material_t material,uint32_t side,uint32_t quality){
 	if(!lightmap)
 		return;
 	vec3_t lm_pos = {node.pos.x,node.pos.y,node.pos.z};
 
-	vec3add(&lm_pos,0.5f);
-	lm_pos.a[side >> 1] -= 0.501f - (float)(side & 1) * 1.002f;
-
-	int v_x = (int[]){VEC3_Y,VEC3_X,VEC3_X}[side >> 1];
-	int v_y = (int[]){VEC3_Z,VEC3_Z,VEC3_Y}[side >> 1];
-
-	uint32_t size = GETLIGHTMAPSIZE(node.depth);
-
-	float lm_size_sub = (1.0f / size);
-
-	lm_pos.a[v_x] -= lm_size_sub * (size / 2.0f) - 0.001f;
-	lm_pos.a[v_y] -= lm_size_sub * (size / 2.0f) - 0.001f;
-
-	for(int sub_x = 0;sub_x < size + 1;sub_x++){
-		for(int sub_y = 0;sub_y < size + 1;sub_y++){
-			uint32_t x = sub_x;
-			uint32_t y = sub_y;
-			vec3_t lm_pos_b = lm_pos;
-
-			lm_pos_b.a[v_x] += lm_size_sub * x * 0.998f;
-			lm_pos_b.a[v_y] += lm_size_sub * y * 0.998f;
-			vec3_t pos_c = lm_pos_b;
-			lm_pos_b = vec3divR(lm_pos_b,(float)(1 << node.depth) * 0.5f);
-			vec3mul(&lm_pos_b,MAP_SIZE);
-			uint32_t lightmap_location = x * (size + 1) + y;
-			vec3_t pre = lightmap[lightmap_location];
-			if(insideBlock(lm_pos_b)){
-				lm_pos_b = posNew(lm_pos_b,size,v_x,v_y);
-				if(lm_pos_b.x == -1.0f)
-					continue;
-			}
-			setLightMap(&lightmap[lightmap_location],lm_pos_b,side,quality);
+	if(node.type == BLOCK_SPHERE){
+		float block_size = getBlockSize(node.depth);
+		vec3mul(&lm_pos,block_size);
+		vec3add(&lm_pos,block_size * 0.5f); 
+		for(int i = 0;i < SPHERE_TRIANGLE_COUNT;i++){
+			setLightMap(&lightmap[i],lm_pos,sphere_vertex[i],quality);
 			if(main_thread_status){
 				main_thread_status = 2;
 				while(main_thread_status == 2)
 					Sleep(1);
 			}
-			vec3mulvec3(&lightmap[lightmap_location],material.luminance);
-			vec3_t post = lightmap[lightmap_location];
-		}
-	}
-}
-
-void updateLightMapSideTest(node_t node,vec3_t* lightmap,material_t material,uint32_t side,uint32_t quality,float distance){
-	if(!lightmap)
+			vec3mulvec3(&lightmap[i],material.luminance);
+		}	
 		return;
-	vec3_t lm_pos = {node.pos.x,node.pos.y,node.pos.z};
-
+	}
+	
 	vec3add(&lm_pos,0.5f);
 	lm_pos.a[side >> 1] -= 0.501f - (float)(side & 1) * 1.002f;
 
@@ -419,7 +296,7 @@ void updateLightMapSideTest(node_t node,vec3_t* lightmap,material_t material,uin
 
 	uint32_t size = GETLIGHTMAPSIZE(node.depth);
 
-	float lm_size_sub = (1.0f / size);
+	float lm_size_sub = 1.0f / size;
 
 	lm_pos.a[v_x] -= lm_size_sub * (size / 2.0f) - 0.001f;
 	lm_pos.a[v_y] -= lm_size_sub * (size / 2.0f) - 0.001f;
@@ -442,7 +319,7 @@ void updateLightMapSideTest(node_t node,vec3_t* lightmap,material_t material,uin
 				if(lm_pos_b.x == -1.0f)
 					continue;
 			}
-			lightmap[lightmap_location] = (vec3_t){distance * 0.01f,distance * 0.01f,distance * 0.01f};
+			setLightMap(&lightmap[lightmap_location],lm_pos_b,normal_table[side],quality);
 			if(main_thread_status){
 				main_thread_status = 2;
 				while(main_thread_status == 2)
@@ -456,7 +333,7 @@ void updateLightMapSideTest(node_t node,vec3_t* lightmap,material_t material,uin
 
 void updateLightMap(vec3_t pos,uint32_t node_ptr,float radius){
 	node_t* node = dynamicArrayGet(node_root,node_ptr);
-	float block_size = (float)((1 << 20) >> node->depth) * MAP_SIZE_INV;
+	float block_size = getBlockSize(node->depth);
 	vec3_t block_pos = {node->pos.x,node->pos.y,node->pos.z};
 	vec3add(&block_pos,0.5f);
 	vec3mul(&block_pos,block_size);
@@ -469,8 +346,6 @@ void updateLightMap(vec3_t pos,uint32_t node_ptr,float radius){
 		return;
 	}
 	if(node->type == BLOCK_AIR){
-		if(TRND1 > 0.05f)
-			return;
 		calculateNodeLuminance(node,32);
 		return;
 	}

@@ -10,13 +10,17 @@ DYNAMIC_ARRAY(node_root,node_t);
 DYNAMIC_ARRAY(block_array,block_t);
 DYNAMIC_ARRAY(air_array,air_t);
 
+float getBlockSize(int depth){
+	return (float)((1 << 20) >> depth) * MAP_SIZE_INV;
+}
+
 float rayNodeGetDistance(vec3_t ray_pos,ivec3 pos,int depth,vec3_t angle,int side){
 	vec3_t block_pos;
 	float block_size = (float)MAP_SIZE / (1 << depth) * 2.0f;
 	block_pos.x = pos.x * block_size;
 	block_pos.y = pos.y * block_size;
 	block_pos.z = pos.z * block_size;
-	plane_t plane = getPlane(block_pos,angle,side,block_size);
+	plane_ray_t plane = getPlane(block_pos,angle,side,block_size);
 	vec3_t plane_pos = vec3subvec3R(plane.pos,ray_pos);
 	return rayIntersectPlane(plane_pos,angle,plane.normal);
 }
@@ -138,44 +142,6 @@ uint32_t getNode(int x,int y,int z,int depth){
 	return node_ptr;
 }
 
-void removeVoxel(uint32_t node_ptr){
-	node_t* node = dynamicArrayGet(node_root,node_ptr);
-	if(node->type == BLOCK_PARENT || node->type == BLOCK_AIR)
-		return;
-	block_t* block = dynamicArrayGet(block_array,node->index);
-	if(material_array[node->type].flags & MAT_POWER)
-		removePowerGrid(node_ptr);
-	if(material_array[node->type].flags & MAT_LIQUID){
-
-	}
-	else{
-		for(int i = 0;i < 6;i++){
-			if(!block->luminance[i])
-				continue;
-			tFree(block->luminance[i]);
-		}
-	}
-	node->index = air_array.size;
-	node->type = BLOCK_AIR;
-	air_t air;
-	air.entity = -1;
-	air.o2 = 0.0f;
-	dynamicArrayAdd(&air_array,&air);
-	node_t* parent = dynamicArrayGet(node_root,node->parent);
-	if(!parent->depth)
-		return;
-	bool exit = false;
-	for(int i = 0;i < 8;i++){
-		node_t* child = dynamicArrayGet(node_root,parent->child_s[i]);
-		if(child->type == BLOCK_AIR)
-			continue;
-		exit = true;
-	}
-	if(exit)
-		return;
-	removeVoxel(node->parent);
-}
-
 void removeSubVoxel(uint32_t node_index){
 	node_t* node = dynamicArrayGet(node_root,node_index);
 	if(node->type == BLOCK_PARENT){
@@ -191,6 +157,59 @@ void removeSubVoxel(uint32_t node_index){
 	if(material_array[node->type].flags & MAT_POWER)
 		removePowerGrid(node_index);
 	dynamicArrayRemove(&block_array,node->index);
+}
+
+void removeVoxel(uint32_t node_ptr){
+	node_t* node = dynamicArrayGet(node_root,node_ptr);
+	node_t* parent = dynamicArrayGet(node_root,node->parent);
+	if(node->type == BLOCK_PARENT){
+		node->index = dynamicArrayTop(air_array);
+		node->type = BLOCK_AIR;
+		air_t air;
+		air.entity = -1;
+		air.o2 = 0.3f;
+		dynamicArrayAdd(&air_array,&air);
+		bool exit = false;
+		for(int i = 0;i < 8;i++){
+			node_t* child = dynamicArrayGet(node_root,parent->child_s[i]);
+			if(child->type == BLOCK_AIR)
+				continue;
+			exit = true;
+		}
+		if(!exit){
+			removeVoxel(node->parent);
+			return;
+		}
+		for(int i = 0;i < 8;i++)
+			removeSubVoxel(node->child_s[i]);
+		return;
+	}
+	block_t* block = dynamicArrayGet(block_array,node->index);
+	if(material_array[node->type].flags & MAT_POWER)
+		removePowerGrid(node_ptr);
+	for(int i = 0;i < 6;i++){
+		if(!block->luminance[i])
+			continue;
+		tFree(block->luminance[i]);
+	}
+	node->index = dynamicArrayTop(air_array);
+	node->type = BLOCK_AIR;
+	air_t air;
+	air.entity = -1;
+	air.o2 = 0.3f;
+	dynamicArrayAdd(&air_array,&air);
+	if(!parent->depth)
+		return;
+	bool exit = false;
+	for(int i = 0;i < 8;i++){
+		node_t* child = dynamicArrayGet(node_root,parent->child_s[i]);
+		if(child->type == BLOCK_AIR)
+			continue;
+		exit = true;
+	}
+	if(exit)
+		return;
+	removeVoxel(node->parent);
 }
 
 void setVoxel(uint32_t x,uint32_t y,uint32_t z,int depth,uint32_t material,float ammount){
@@ -218,8 +237,9 @@ void setVoxel(uint32_t x,uint32_t y,uint32_t z,int depth,uint32_t material,float
 				node_new.child_s[k] = 0;
 			air_t air;
 			air.entity = -1;
-			air.o2 = 0.0f;
+			air.o2 = 0.3f;
 			air.node = node_root.size;
+			air.luminance = VEC3_ZERO;
 			node_new.index = dynamicArrayTop(air_array);
 			dynamicArrayAdd(&air_array,&air);
 			node->child_s[j] = dynamicArrayTop(node_root);
@@ -462,12 +482,12 @@ uint32_t traverseTreeItt(ray3i_t ray,uint32_t node_ptr){
 		return i;
 	}
 }
-
-#define O2_COLOR (vec3_t){0.3f,0.6f,1.0f}
+#define O2_COLOR (vec3_t){0.9f,0.9f,0.9f}
+//#define O2_COLOR (vec3_t){0.3f,0.6f,1.0f}
 
 fog_t treeRayFog(ray3_t ray,uint32_t node_ptr,vec3_t ray_pos,float max_distance){
-	fog_t fog = {0};
-	fog_t fog_buffer = {0};
+	fog_t fog = {0.0f,0.0f,0.0f,0.0f};
+	fog_t fog_buffer = {0.0f,0.0f,0.0f,0.0f};
 	float distance_buf = 0.0f;
 	node_t* node = dynamicArrayGet(node_root,0);
 	for(;;){
@@ -584,7 +604,7 @@ node_hit_t treeRayOnce(ray3_t ray,uint32_t node_ptr,vec3_t ray_pos){
 		recalculateRay(&ray);
 	}
 }
-#include <stdio.h>
+
 node_hit_t treeRay(ray3_t ray,uint32_t node_ptr,vec3_t ray_pos){
 	bool small_x = ray.dir.x < 0.0001f && ray.dir.x > -0.0001f;
 	bool small_y = ray.dir.y < 0.0001f && ray.dir.y > -0.0001f;
@@ -619,7 +639,6 @@ node_hit_t treeRay(ray3_t ray,uint32_t node_ptr,vec3_t ray_pos){
 			ray.pos.a[x] = tFractUnsigned(ray.pos.a[x] + side_delta * ray.dir.a[x]) * 2.0f;
 			ray.pos.a[y] = tFractUnsigned(ray.pos.a[y] + side_delta * ray.dir.a[y]) * 2.0f;
 			ray.pos.a[ray.square_side] = (ray.dir.a[ray.square_side] < 0.0f) * TREE_ALMOST_TWO;
-		
 			node_ptr = child;
 			recalculateRay(&ray);
 			continue;
@@ -627,6 +646,16 @@ node_hit_t treeRay(ray3_t ray,uint32_t node_ptr,vec3_t ray_pos){
 		if(material_array[node[child].type].flags & MAT_LIQUID){
 			ray3Itterate(&ray);
 			continue;
+		}
+		if(node[child].type == BLOCK_SPHERE){
+			float radius = getBlockSize(node[child].depth);
+			vec3_t pos = {node[child].pos.x,node[child].pos.y,node[child].pos.z};
+			vec3mul(&pos,radius);
+			vec3add(&pos,radius * 0.5f);
+			if(rayIntersectSphere(ray_pos,pos,ray.dir,radius) == -1.0f){
+				ray3Itterate(&ray);
+				continue;
+			}
 		}
 		return (node_hit_t){child,ray.square_side};
 	}

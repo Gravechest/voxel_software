@@ -6,7 +6,7 @@
 #include "lighting.h"
 #include "tmath.h"
 
-static bool isInBlockSide(vec3_t origin,vec3_t ray_direction,float distance,plane_t plane,float block_size){
+static bool isInBlockSide(vec3_t origin,vec3_t ray_direction,float distance,plane_ray_t plane,float block_size){
 	vec3_t hit_pos = vec3addvec3R(origin,vec3mulR(ray_direction,distance));
 	vec2_t uv = {
 		hit_pos.a[plane.x] - plane.pos.a[plane.x],
@@ -19,6 +19,6 @@ static bool isInBlockSide(vec3_t origin,vec3_t ray_direction,float distance,plan
 
 typedef struct{
 	int node;
-	plane_t plane;
+	plane_ray_t plane;
 	uint32_t side;
 }node_plane_t;

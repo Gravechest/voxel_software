@@ -17,3 +17,4 @@ void dynamicArrayAdd(dynamic_array_t* dynamic_array,void* data);
 void* dynamicArrayGet(dynamic_array_t dynamic_array,uint64_t element);
 void dynamicArrayReset(dynamic_array_t* dynamic_array);
 uint32_t dynamicArrayTop(dynamic_array_t dynamic_array);
+void setViewPlanes();

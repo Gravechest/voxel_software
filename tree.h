@@ -36,6 +36,7 @@ extern dynamic_array_t node_root;
 extern dynamic_array_t block_array;
 extern dynamic_array_t air_array;
 
+float getBlockSize(int depth);
 traverse_init_t initTraverse(vec3_t pos);
 node_hit_t treeRay(ray3_t ray,uint32_t node_ptr,vec3_t ray_pos);
 node_hit_t treeRayI(ray3i_t ray,uint32_t node_ptr);

@@ -6,6 +6,12 @@
 #include "dda.h"
 #include "vec2.h"
 
+#define SPHERE_TRIANGLE_COUNT 256
+
+#define RD_RATIO (9.0f/16.0f)
+#define RD_SQUARE(V) (vec2_t){V * RD_RATIO,V}
+#define RD_RECTANGLE(V) (vec2_t){V.x * RD_RATIO,V.y}
+
 #define RD_DISTANCE 120
 
 #define TEXTURE_AMMOUNT 6
@@ -52,7 +58,14 @@ enum{
 	BLOCK_SKIN,
 	BLOCK_SPAWNLIGHT,
 	BLOCK_COAL,
-	BLOCK_GENERATOR
+	BLOCK_GENERATOR,
+	BLOCK_SPHERE,
+	BLOCK_RED,
+	BLOCK_GREEN,
+	BLOCK_BLUE,
+	BLOCK_EMIT_RED,
+	BLOCK_EMIT_GREEN,
+	BLOCK_EMIT_BLUE,
 };
 
 enum{
@@ -102,6 +115,11 @@ typedef struct{
 	vec3_t pos;
 	vec3_t normal;
 	int x,y,z;
+}plane_ray_t;
+
+typedef struct{
+	float distance;
+	vec3_t normal;
 }plane_t;
 
 typedef struct{
@@ -120,7 +138,6 @@ typedef struct{
 
 typedef struct{
 	int flags;
-	texture_t texture;
 	vec3_t luminance;
 	float light_emit;
 	vec2_t texture_pos;
@@ -176,8 +193,7 @@ typedef struct{
 }inventoryslot_t;
 
 #define ENTITY_LUMINANT (1 << 0)
-
-extern texture_t texture[];
+ 
 extern camera_t camera;
 extern int test_bool;
 extern material_t material_array[];
@@ -186,24 +202,26 @@ extern int global_tick;
 extern float camera_exposure;
 extern bool setting_smooth_lighting;
 extern bool setting_fly;
-extern volatile uint32_t light_new_stack_ptr;
-extern volatile light_new_stack_t light_new_stack[];
+extern uint32_t light_new_stack_ptr;
+extern light_new_stack_t light_new_stack[];
 extern bool context_is_gl;
 extern pixel_t* texture_atlas;
 extern int block_type;
-extern int tool_select;
+extern bool model_mode;
 extern inventoryslot_t inventory_slot[9];
 extern uint32_t border_block_table[6][4];
 extern int main_thread_status;
+extern uint8_t sphere_indices[256][3];
+extern vec3_t sphere_vertex[256];
 
 vec3_t pointToScreenZ(vec3_t point);
-plane_t getPlane(vec3_t pos,vec3_t dir,uint32_t side,float block_size);
+plane_ray_t getPlane(vec3_t pos,vec3_t dir,uint32_t side,float block_size);
 vec3_t getLookAngle(vec2_t angle);
 vec2_t sampleCube(vec3_t v,uint32_t* faceIndex);
 float rayIntersectPlane(vec3_t pos,vec3_t dir,vec3_t plane);
+float rayIntersectSphere(vec3_t ray_pos,vec3_t sphere_pos,vec3_t ray_dir,float radius);
 vec3_t getLuminance(vec3_t* luminance,vec2_t uv,uint32_t depth);
-vec3_t getRayAngle(uint32_t x,uint32_t y);
-void drawLine(vec2_t pos_1,vec2_t pos_2,pixel_t color);
+vec3_t getRayAngleCamera(uint32_t x,uint32_t y);
+vec3_t getRayAnglePlane(vec3_t normal,float x,float y);
 float sdCube(vec3_t point,vec3_t cube,float cube_size);
-void calculateDynamicLight(vec3_t pos,uint32_t node_ptr,float radius,vec3_t color);
 vec3_t pointToScreenRenderer(vec3_t point);
