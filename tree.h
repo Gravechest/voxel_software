@@ -10,6 +10,8 @@
 
 #define FIXED_PRECISION 16
 
+#define TREE_RAY_LIQUID (1 << 0)
+
 typedef struct{
 	int node;
 	int side;
@@ -38,6 +40,7 @@ extern dynamic_array_t air_array;
 
 float getBlockSize(int depth);
 traverse_init_t initTraverse(vec3_t pos);
+node_hit_t treeRayFlags(ray3_t ray,uint32_t node_ptr,vec3_t ray_pos,int flags);
 node_hit_t treeRay(ray3_t ray,uint32_t node_ptr,vec3_t ray_pos);
 node_hit_t treeRayI(ray3i_t ray,uint32_t node_ptr);
 uint32_t traverseTreeItt(ray3i_t ray,uint32_t node_ptr);
@@ -53,3 +56,4 @@ float rayGetDistance(vec3_t ray_pos,vec3_t ray_dir);
 node_t treeTraverse(vec3_t pos);
 fog_t treeRayFog(ray3_t ray,uint32_t node_ptr,vec3_t ray_pos,float max_distance);
 node_hit_t treeRayOnce(ray3_t ray,uint32_t node_ptr,vec3_t ray_pos);
+ivec3 getGridPosFromPos(vec3_t pos,uint32_t depth);

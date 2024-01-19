@@ -6,6 +6,7 @@
 #include "tree.h"
 #include "lighting.h"
 #include "entity.h"
+#include "inventory.h"
 
 char mask[RD_MASK_X][RD_MASK_Y];
 ivec2 scanline[RD_MASK_X];
@@ -43,7 +44,7 @@ void setScanlineMask(vec2_t pos_1,vec2_t pos_2){
 void insertMaskQuad(vec2_t pos[4]){
 	int max_x = tMax(tMax(pos[0].x,pos[1].x),tMax(pos[2].x,pos[3].x));
 	int min_x = tMin(tMin(pos[0].x,pos[1].x),tMin(pos[2].x,pos[3].x));
-	max_x = tMin(max_x,RD_MASK_X + 1);
+	max_x = tMin(max_x,RD_MASK_X);
 	min_x = tMax(min_x,-1);
 	for(int i = min_x;i < max_x;i++){
 		scanline[i].x = RD_MASK_Y;
@@ -145,11 +146,21 @@ volatile plane_t view_plane[4];
 
 void addSubSquare(vec3_t block_pos,ivec3 axis,node_t node,float block_size,int side,float detail,float sqf_x,float sqf_y,float sub_size){
 	block_t* block = dynamicArrayGet(block_array,node.index);
-	if(material_array[node.type].flags & (MAT_REFLECT | MAT_LIQUID | MAT_REFRACT))
-		detail *= 8.0f;
 	material_t material = material_array[node.type];
+	if(material.flags & (MAT_REFLECT | MAT_LIQUID | MAT_REFRACT))
+		detail *= 4.0f;
+	else if(!material_array[node.type].flags){
+		if(!block->luminance[side])
+			return;
+	}
+	
 	uint32_t lm_size = GETLIGHTMAPSIZE(node.depth);
-	uint32_t square_size = tMax(tMin(detail,lm_size) * sub_size,1);
+	uint32_t square_size;
+	if(material.flags & (MAT_REFLECT | MAT_LIQUID | MAT_REFRACT))
+		square_size = tMax(detail * sub_size,1);
+	else
+		square_size = tMax(tMin(detail,lm_size) * sub_size,1);
+		
 	uint32_t count = 0;
 
 	while(square_size > 1){
@@ -167,9 +178,9 @@ void addSubSquare(vec3_t block_pos,ivec3 axis,node_t node,float block_size,int s
 	pos.a[axis.x] = block_pos.a[axis.x];
 	pos.a[axis.z] = block_pos.a[axis.z];
 
-	static vec3_t point_grid[4096];
-	static vec3_t lighting_grid[4096];
-	static fog_t fog_color_cache[4096];
+	static vec3_t point_grid[4096 * 8];
+	static vec3_t lighting_grid[4096 * 8];
+	static fog_t fog_color_cache[4096 * 8];
 
 	for(int i = 0;i < square_size + 1;i++){
 		for(int j = 0;j < square_size + 1;j++){
@@ -178,13 +189,13 @@ void addSubSquare(vec3_t block_pos,ivec3 axis,node_t node,float block_size,int s
 				square_size_lm * i + sqf_y
 			};
 			uint32_t location = i * (square_size + 1) + j;
-			//fog_color_cache[location] = calculateFogColor(pos);
-			fog_color_cache[location].density = 1.0f;
+			
+			fog_color_cache[location] = calculateFogColor(pos);
+			
+			//fog_color_cache[location].density = 1.0f;
 			point_grid[location] = pos;
-			if(material.flags & MAT_LUMINANT){
-				printf("yeet\n");
+			if(material.flags & MAT_LUMINANT)
 				lighting_grid[location] = material.luminance;
-			}
 			/*
 			else if(material.flags & MAT_POWER){
 				lighting_grid[location].r = tFract((tHash(block->power_grid[0]) & 255) * 0.1f);
@@ -247,8 +258,12 @@ void addSubSquare(vec3_t block_pos,ivec3 axis,node_t node,float block_size,int s
 				lighting_grid[location] = vec3mulR(luminance,1.0f);
 			}
 			else{
-				int lm_location = (int)(lm.x * (lm_size)) * (int)(lm_size + 1) + lm.y * (lm_size);
-				lighting_grid[location] = block->luminance[side][lm_location];
+				if(!block->luminance[side])
+					lighting_grid[location] = VEC3_ZERO;
+				else{
+					int lm_location = (int)(lm.x * (lm_size)) * (int)(lm_size + 1) + lm.y * (lm_size);
+					lighting_grid[location] = block->luminance[side][lm_location];
+				}
 			}
 			vec3mul(&lighting_grid[location],camera.exposure);
 			pos.a[axis.x] += block_size_sub;
@@ -256,12 +271,24 @@ void addSubSquare(vec3_t block_pos,ivec3 axis,node_t node,float block_size,int s
 		pos.a[axis.x] -= block_size_sub * (square_size + 1);
 		pos.a[axis.y] += block_size_sub;
 	}
-	
-	if(model_mode == 0 && material.flags & MAT_LUMINANT){
-		for(int i = 0;i < square_size + 1;i++){
-			for(int j = 0;j < square_size + 1;j++){
-				uint32_t location = i * (square_size + 1) + j;
-				vec3addvec3(&lighting_grid[location],material.luminance);
+	int item = player_gamemode == GAMEMODE_SURVIVAL ? inventory_slot[INVENTORY_PASSIVE].type : block_type;
+	if(model_mode == 0 && item != ITEM_VOID){
+		if(material_array[item].flags & MAT_LUMINANT){
+			vec3_t luminance = material_array[item].luminance;
+			static float torch_flickering = 1.0f;
+			if(item == BLOCK_TORCH){
+				vec3mul(&luminance,torch_flickering);
+				torch_flickering += TRND1 * 0.005f;
+				torch_flickering *= 0.998f;
+			}
+			for(int i = 0;i < square_size + 1;i++){
+				for(int j = 0;j < square_size + 1;j++){
+					uint32_t location = i * (square_size + 1) + j;
+					vec3_t pos = point_grid[location];
+					float distance = 1.0f / vec3distance(pos,camera.pos);
+					float strength = distance * -vec3dotR(vec3subvec3R(pos,camera.pos),normal_table[side]);
+					vec3addvec3(&lighting_grid[location],vec3mulR(luminance,strength));
+				}
 			}
 		}
 	}
@@ -333,7 +360,8 @@ void addSubSquare(vec3_t block_pos,ivec3 axis,node_t node,float block_size,int s
 
 #define LOD_NORMAL (1800.0f * 2.0f)
 
-void test(node_t node,vec3_t block_pos,ivec3 axis,float block_size,int side,float x,float y,float size,uint32_t depth){
+//TODO reduce parameter list
+void addSquare(node_t node,vec3_t block_pos,ivec3 axis,float block_size,int side,float x,float y,float size,uint32_t depth){
 	if(block_size < 0.05f)
 		return;
 	vec3_t point[4];
@@ -364,7 +392,7 @@ void test(node_t node,vec3_t block_pos,ivec3 axis,float block_size,int side,floa
 		size *= 0.5f;
 		for(int i = 0;i < 2;i++){
 			for(int j = 0;j < 2;j++){
-				test(node,block_pos,axis,block_size,side,x,y,size,depth + 1);
+				addSquare(node,block_pos,axis,block_size,side,x,y,size,depth + 1);
 				block_pos.a[axis.x] += block_size;
 				x += size;
 			}
@@ -375,10 +403,8 @@ void test(node_t node,vec3_t block_pos,ivec3 axis,float block_size,int side,floa
 		}
 		return;
 	}
-	
 	if(!readMaskQuad((vec2_t[]){screen_quad_2[0],screen_quad_2[1],screen_quad_2[3],screen_quad_2[2]}))
 		return;
-		
 	float min_distance = tMinf(tMinf(screen_quad[0].z,screen_quad[1].z),tMinf(screen_quad[2].z,screen_quad[3].z));
 	uint32_t distance_level;               
 	float detail_multiplier;
@@ -402,14 +428,14 @@ void gatherEntityTriangles(entity_t* entity,air_t* air){
 	vec3_t point = pointToScreenZ(entity->pos);
 	if(!point.z)
 		return;
-	float size = 1.0f / point.z * entity->size;
+	vec2_t size = vec2mulR((vec2_t){entity->size,entity->size * RD_RATIO},1.0f / point.z);
 	point.x = point.x / WND_RESOLUTION.x * 2.0f - 1.0f;
 	point.y = point.y / WND_RESOLUTION.y * 2.0f - 1.0f;
 	vec3_t screen_point[4];
-	screen_point[0] = (vec3_t){point.y - size,point.x - size,1.0f};
-	screen_point[1] = (vec3_t){point.y + size,point.x - size,1.0f};
-	screen_point[2] = (vec3_t){point.y - size,point.x + size,1.0f};
-	screen_point[3] = (vec3_t){point.y + size,point.x + size,1.0f};
+	screen_point[0] = (vec3_t){point.y - size.y,point.x - size.x,1.0f};
+	screen_point[1] = (vec3_t){point.y + size.y,point.x - size.x,1.0f};
+	screen_point[2] = (vec3_t){point.y - size.y,point.x + size.x,1.0f};
+	screen_point[3] = (vec3_t){point.y + size.y,point.x + size.x,1.0f};
 
 	fog_t fog = calculateFogColor(entity->pos);
 	float distance = 1.0f / (point.z * FOG_DENSITY + 1.0f);
@@ -444,10 +470,8 @@ void setViewPlanes(){
 }
 
 bool cubeInScreenSpace(vec3_t point[8]){
-	return true;
 	for(int i = 0;i < 8;i++)
 		vec3subvec3(&point[i],camera.pos);
-
 	bool result[5] = {0,0,0,0,0};
 	for(int j = 0;j < 8;j++){
 		if(vec3dotR(point[j],getLookAngle(camera.dir)) > 0.0f){
@@ -467,9 +491,143 @@ bool cubeInScreenSpace(vec3_t point[8]){
 	}
 	return result[0] && result[1] && result[2] && result[3];
 }
+
+static void sphere(block_t* block,vec3_t block_pos,float block_size){
+	vec3_t middle = block_pos;
+	vec3add(&middle,block_size * 0.5f);
+	for(int i = 0;i < SPHERE_TRIANGLE_COUNT;i++){
+		vec3_t point[3] = {
+			vec3addvec3R(vec3mulR(sphere_vertex[sphere_indices[i][0]],block_size * 0.5f),middle),
+			vec3addvec3R(vec3mulR(sphere_vertex[sphere_indices[i][1]],block_size * 0.5f),middle),
+			vec3addvec3R(vec3mulR(sphere_vertex[sphere_indices[i][2]],block_size * 0.5f),middle),
+		};
+		vec3_t normal = vec3divR(vec3addvec3R(vec3addvec3R(sphere_vertex[sphere_indices[i][0]],sphere_vertex[sphere_indices[i][1]]),sphere_vertex[sphere_indices[i][2]]),3.0f);
+		if(vec3dotR(normal,vec3subvec3R(camera.pos,point[1])) < 0.0f)
+			continue;
+		vec3_t t_point[3] = {
+			pointToScreenRenderer(point[0]),	
+			pointToScreenRenderer(point[1]),	
+			pointToScreenRenderer(point[2]),	
+		};
+		vec3_t s_point[3];
+		for(int k = 0;k < 3;k++){
+			s_point[k].z = t_point[k].z;
+			s_point[k].y = t_point[k].x;
+			s_point[k].x = t_point[k].y;
+		}
+		triangles[triangle_count++] = (triangle_t){s_point[0],(vec2_t){0.0f ,0.0f },block->luminance[0][sphere_indices[i][0]],1.0f,VEC3_ZERO};
+		triangles[triangle_count++] = (triangle_t){s_point[1],(vec2_t){0.0f ,0.01f},block->luminance[0][sphere_indices[i][1]],1.0f,VEC3_ZERO};
+		triangles[triangle_count++] = (triangle_t){s_point[2],(vec2_t){0.01f,0.01f},block->luminance[0][sphere_indices[i][2]],1.0f,VEC3_ZERO};
+	}
+}
+
+static void torus(block_t* block,vec3_t block_pos,float block_size,int axis,int rotation){
+	int axis_table[][3] = {{VEC3_X,VEC3_Y,VEC3_Z},{VEC3_Y,VEC3_Z,VEC3_X},{VEC3_Z,VEC3_X,VEC3_Y}};
+	int axis_v[] = {axis_table[axis][0],axis_table[axis][1],axis_table[axis][2]};
+	vec3_t middle = block_pos;
+	middle.a[axis_v[0]] += block_size * 0.5f;
+	if(rotation == 2 || rotation == 1)
+		middle.a[axis_v[1]] += block_size;
+	if(rotation & 2)
+		middle.a[axis_v[2]] += block_size;
+	vec3_t normal[16 * 16];
+	vec3_t vertex[16 * 16];
+	int triangle_ammount = 16;
+	for(int i = 0;i < triangle_ammount;i++){
+		vec2_t offset = vec2rotR((vec2_t){1.0f,0.0f},(i / (triangle_ammount - 1.0f) + rotation) * M_PI * 0.5f);
+		vec3_t middle_line;
+		middle_line.a[axis_v[1]] = middle.a[axis_v[1]] + offset.x * block_size * 0.5f;
+		middle_line.a[axis_v[2]] = middle.a[axis_v[2]] + offset.y * block_size * 0.5f;
+		middle_line.a[axis_v[0]] = middle.a[axis_v[0]];
+		for(int j = 0;j < triangle_ammount;j++){
+			vec3_t pos = middle_line;
+			vec2_t offset2 = vec2rotR((vec2_t){1.0f,0.0f},(j / (triangle_ammount - 1.0f)) * M_PI * 2.0f);
+			pos.a[axis_v[1]] += offset.x * offset2.y * block_size * 0.25f;
+			pos.a[axis_v[2]] += offset.y * offset2.y * block_size * 0.25f;
+			pos.a[axis_v[0]] += offset2.x * block_size * 0.25f;
+			normal[i * 16 + j] = vec3subvec3R(middle_line,pos);
+			vertex[i * triangle_ammount + j] = pos;
+		}
+	}
+	for(int i = 0;i < triangle_ammount - 1;i++){
+		for(int j = 0;j < triangle_ammount - 1;j++){
+			//backface culling
+			if(vec3dotR(normal[i * 16 + j],vec3subvec3R(vertex[i * triangle_ammount + j],camera.pos)) < 0.0f)
+				continue;
+			vec3_t point[4] = {
+				pointToScreenRenderer(vertex[i * triangle_ammount + j]),	
+				pointToScreenRenderer(vertex[i * triangle_ammount + (j + 1)]),	
+				pointToScreenRenderer(vertex[(i + 1) * triangle_ammount + j]),	
+				pointToScreenRenderer(vertex[(i + 1) * triangle_ammount + (j + 1)]),	
+			};
+			vec3_t s_point[4];
+			for(int k = 0;k < 4;k++){
+				s_point[k].z = point[k].z;
+				s_point[k].y = point[k].x;
+				s_point[k].x = point[k].y;
+			}
+			triangles[triangle_count++] = (triangle_t){s_point[0],(vec2_t){0.0f ,0.0f },block->luminance[0][i * 16 + j],1.0f,VEC3_ZERO};
+			triangles[triangle_count++] = (triangle_t){s_point[1],(vec2_t){0.0f ,0.01f},block->luminance[0][i * 16 + j + 1],1.0f,VEC3_ZERO};
+			triangles[triangle_count++] = (triangle_t){s_point[3],(vec2_t){0.01f,0.01f},block->luminance[0][(i + 1) * 16 + j + 1],1.0f,VEC3_ZERO};
+			triangles[triangle_count++] = (triangle_t){s_point[0],(vec2_t){0.0f ,0.0f },block->luminance[0][i * 16 + j],1.0f,VEC3_ZERO};
+			triangles[triangle_count++] = (triangle_t){s_point[2],(vec2_t){0.01f,0.0f },block->luminance[0][(i + 1) * 16 + j],1.0f,VEC3_ZERO};
+			triangles[triangle_count++] = (triangle_t){s_point[3],(vec2_t){0.01f,0.01f},block->luminance[0][(i + 1) * 16 + j + 1],1.0f,VEC3_ZERO};
+		}
+	}
+}
+
+static void cylinder(block_t* block,vec3_t block_pos,float block_size,int axis){
+	int axis_table[][3] = {{VEC3_X,VEC3_Y,VEC3_Z},{VEC3_Y,VEC3_Z,VEC3_X},{VEC3_Z,VEC3_X,VEC3_Y}};
+	int axis_v[] = {axis_table[axis][0],axis_table[axis][1],axis_table[axis][2]};
+	vec3_t middle = block_pos;
+	vec3add(&middle,block_size * 0.5f);
+	int triangle_ammount = 16;
+	vec3_t normal[16 * 16];
+	vec3_t vertex[16 * 16];
+	for(int i = 0;i < triangle_ammount;i++){
+		vec3_t middle_line;
+		middle_line.a[axis_v[1]] = middle.a[axis_v[1]];
+		middle_line.a[axis_v[2]] = middle.a[axis_v[2]];
+		middle_line.a[axis_v[0]] = block_pos.a[axis_v[0]] + (block_size * (i / (triangle_ammount - 1.0f)));
+		for(int j = 0;j < triangle_ammount;j++){
+			vec3_t pos = middle_line;
+			vec2_t offset = vec2rotR((vec2_t){1.0f,0.0f},(j / (triangle_ammount - 1.0f)) * M_PI * 2.0f);
+			pos.a[axis_v[1]] += offset.x * block_size * 0.25f;
+			pos.a[axis_v[2]] += offset.y * block_size * 0.25f;
+			normal[j].a[axis_v[1]] = offset.x;
+			normal[j].a[axis_v[2]] = offset.y;
+			normal[j].a[axis_v[0]] = 0.0f;
+			vertex[i * triangle_ammount + j] = pos;
+		}
+	}
+	for(int i = 0;i < triangle_ammount - 1;i++){
+		for(int j = 0;j < triangle_ammount - 1;j++){
+			//backface culling
+			if(vec3dotR(normal[j],getLookAngle(camera.dir)) > 0.0f)
+				continue;
+			vec3_t point[4] = {
+				pointToScreenRenderer(vertex[i * triangle_ammount + j]),	
+				pointToScreenRenderer(vertex[i * triangle_ammount + (j + 1)]),	
+				pointToScreenRenderer(vertex[(i + 1) * triangle_ammount + j]),	
+				pointToScreenRenderer(vertex[(i + 1) * triangle_ammount + (j + 1)]),	
+			};
+			vec3_t s_point[4];
+			for(int k = 0;k < 4;k++){
+				s_point[k].z = point[k].z;
+				s_point[k].y = point[k].x;
+				s_point[k].x = point[k].y;
+			}
+			triangles[triangle_count++] = (triangle_t){s_point[0],(vec2_t){0.0f ,0.0f },block->luminance[0][i * 16 + j],1.0f,VEC3_ZERO};
+			triangles[triangle_count++] = (triangle_t){s_point[1],(vec2_t){0.0f ,0.01f},block->luminance[0][i * 16 + j + 1],1.0f,VEC3_ZERO};
+			triangles[triangle_count++] = (triangle_t){s_point[3],(vec2_t){0.01f,0.01f},block->luminance[0][(i + 1) * 16 + j + 1],1.0f,VEC3_ZERO};
+			triangles[triangle_count++] = (triangle_t){s_point[0],(vec2_t){0.0f ,0.0f },block->luminance[0][i * 16 + j],1.0f,VEC3_ZERO};
+			triangles[triangle_count++] = (triangle_t){s_point[2],(vec2_t){0.01f,0.0f },block->luminance[0][(i + 1) * 16 + j],1.0f,VEC3_ZERO};
+			triangles[triangle_count++] = (triangle_t){s_point[3],(vec2_t){0.01f,0.01f},block->luminance[0][(i + 1) * 16 + j + 1],1.0f,VEC3_ZERO};
+		}
+	}
+}
 #include <stdio.h>
 void sceneGatherTriangles(uint32_t node_ptr){
-	setViewPlanes();
 	node_t* node = dynamicArrayGet(node_root,node_ptr);
 	float block_size = getBlockSize(node->depth);
 	vec3_t block_pos = {node->pos.x,node->pos.y,node->pos.z};
@@ -485,9 +643,9 @@ void sceneGatherTriangles(uint32_t node_ptr){
 	point[5] = (vec3_t){block_pos.x + block_size,block_pos.y + 0.0f,block_pos.z + block_size};
 	point[6] = (vec3_t){block_pos.x + block_size,block_pos.y + block_size,block_pos.z + 0.0f};
 	point[7] = (vec3_t){block_pos.x + block_size,block_pos.y + block_size,block_pos.z + block_size};
-	if(node->type == BLOCK_PARENT){
-		if(!cubeInScreenSpace(point) || !readMask(point))
+	if(!cubeInScreenSpace(point))
 			return;
+	if(node->type == BLOCK_PARENT){
 		if(sdCube(camera.pos,vec3addR(block_pos,block_size * 0.5f),block_size) > 64.0f)
 			return;
 
@@ -525,12 +683,12 @@ void sceneGatherTriangles(uint32_t node_ptr){
 	if(node->type == BLOCK_AIR){
 		air_t* air = dynamicArrayGet(air_array,node->index);
 		int entity_index = air->entity;
+		entity_index = air->entity;
 		while(entity_index != -1){
-			entity_t* entity = &entity_array[air->entity];
+			entity_t* entity = &entity_array[entity_index];
 			gatherEntityTriangles(entity,air);
 			entity_index = entity->next_entity;
 		}
-		air->entity = -1;
 		return;
 	}
 
@@ -573,84 +731,30 @@ void sceneGatherTriangles(uint32_t node_ptr){
 		if(rel_pos.z + block_size * block->ammount < 0.0f){
 			vec3_t pos = block_pos;
 			pos.z += block_size * tMinf(block->ammount,1.0f);
-			test(*node,pos,(ivec3){VEC3_X,VEC3_Y,VEC3_Z},block_size,5,0.0f,0.0f,1.0f,0);
+			addSquare(*node,pos,(ivec3){VEC3_X,VEC3_Y,VEC3_Z},block_size,5,0.0f,0.0f,1.0f,0);
 		}
 		return;
 	}
 	if(node->type == BLOCK_SPHERE){
 		if(!block->luminance[0])
 			return;
-		vec3_t middle = block_pos;
-		vec3add(&middle,block_size * 0.5f);
-		int triangle_ammount = 16;
-		//vec3_t vertex[16 * 16];
-		vec3_t normal[16 * 16];
-		/*
-		for(int i = 0;i < triangle_ammount;i++){
-			vec3_t middle_line;
-			middle_line.x = middle.x;
-			middle_line.z = middle.z;
-			middle_line.y = block_pos.y + (block_size * (i / (triangle_ammount - 1.0f)));
-			for(int j = 0;j < triangle_ammount;j++){
-				vec3_t pos = middle_line;
-				vec2_t offset = vec2rotR((vec2_t){1.0f,0.0f},(j / (triangle_ammount - 1.0f)) * M_PI * 2.0f);
-				pos.x += offset.x * block_size * 0.5f;
-				pos.z += offset.y * block_size * 0.5f;
-				normal[j].x = offset.x;
-				normal[j].z = offset.y;
-				normal[j].y = 0.0f;
-				vertex[i * triangle_ammount + j] = pos;
-			}
-		}
-		for(int i = 0;i < triangle_ammount - 1;i++){
-			for(int j = 0;j < triangle_ammount - 1;j++){
-				//backface culling
-				if(vec3dotR(normal[j],getLookAngle(camera.dir)) > 0.0f)
-					continue;
-				vec3_t point[4] = {
-					pointToScreenRenderer(vertex[i * triangle_ammount + j]),	
-					pointToScreenRenderer(vertex[i * triangle_ammount + (j + 1)]),	
-					pointToScreenRenderer(vertex[(i + 1) * triangle_ammount + j]),	
-					pointToScreenRenderer(vertex[(i + 1) * triangle_ammount + (j + 1)]),	
-				};
-				vec3_t s_point[4];
-				for(int k = 0;k < 4;k++){
-					s_point[k].z = point[k].z;
-					s_point[k].y = point[k].x;
-					s_point[k].x = point[k].y;
-				}
-				triangles[triangle_count++] = (triangle_t){s_point[0],(vec2_t){0.0f ,0.0f },normal[j],1.0f,VEC3_ZERO};
-				triangles[triangle_count++] = (triangle_t){s_point[1],(vec2_t){0.0f ,0.01f},normal[j + 1],1.0f,VEC3_ZERO};
-				triangles[triangle_count++] = (triangle_t){s_point[3],(vec2_t){0.01f,0.01f},normal[j + 1],1.0f,VEC3_ZERO};
-				triangles[triangle_count++] = (triangle_t){s_point[0],(vec2_t){0.0f ,0.0f },normal[j],1.0f,VEC3_ZERO};
-				triangles[triangle_count++] = (triangle_t){s_point[2],(vec2_t){0.01f,0.0f },normal[j],1.0f,VEC3_ZERO};
-				triangles[triangle_count++] = (triangle_t){s_point[3],(vec2_t){0.01f,0.01f},normal[j + 1],1.0f,VEC3_ZERO};
-			}
-		}
-		*/
-		for(int i = 0;i < SPHERE_TRIANGLE_COUNT;i++){
-			vec3_t point[3] = {
-				vec3addvec3R(vec3mulR(sphere_vertex[sphere_indices[i][0]],block_size * 0.5f),middle),
-				vec3addvec3R(vec3mulR(sphere_vertex[sphere_indices[i][1]],block_size * 0.5f),middle),
-				vec3addvec3R(vec3mulR(sphere_vertex[sphere_indices[i][2]],block_size * 0.5f),middle),
-			};
-			vec3_t normal = vec3divR(vec3addvec3R(vec3addvec3R(sphere_vertex[sphere_indices[i][0]],sphere_vertex[sphere_indices[i][1]]),sphere_vertex[sphere_indices[i][2]]),3.0f);
-			if(vec3dotR(normal,vec3subvec3R(camera.pos,point[1])) < 0.0f)
-				continue;
-			vec3_t t_point[3] = {
-				pointToScreenRenderer(point[0]),	
-				pointToScreenRenderer(point[1]),	
-				pointToScreenRenderer(point[2]),	
-			};
-			vec3_t s_point[3];
-			for(int k = 0;k < 3;k++){
-				s_point[k].z = t_point[k].z;
-				s_point[k].y = t_point[k].x;
-				s_point[k].x = t_point[k].y;
-			}
-			triangles[triangle_count++] = (triangle_t){s_point[0],(vec2_t){0.0f ,0.0f },block->luminance[0][sphere_indices[i][0]],1.0f,VEC3_ZERO};
-			triangles[triangle_count++] = (triangle_t){s_point[1],(vec2_t){0.0f ,0.01f},block->luminance[0][sphere_indices[i][1]],1.0f,VEC3_ZERO};
-			triangles[triangle_count++] = (triangle_t){s_point[2],(vec2_t){0.01f,0.01f},block->luminance[0][sphere_indices[i][2]],1.0f,VEC3_ZERO};
+		switch(block->neighbour){
+		default: sphere(block,block_pos,block_size); break;
+		case 0b000011: cylinder(block,block_pos,block_size,VEC3_X); break;
+		case 0b001100: cylinder(block,block_pos,block_size,VEC3_Y); break;
+		case 0b110000: cylinder(block,block_pos,block_size,VEC3_Z); break;
+		case 0b001010: torus(block,block_pos,block_size,VEC3_Z,0); break;
+		case 0b000110: torus(block,block_pos,block_size,VEC3_Z,3); break;
+		case 0b001001: torus(block,block_pos,block_size,VEC3_Z,1); break;
+		case 0b000101: torus(block,block_pos,block_size,VEC3_Z,2); break;
+		case 0b100010: torus(block,block_pos,block_size,VEC3_Y,0); break;
+		case 0b100001: torus(block,block_pos,block_size,VEC3_Y,1); break;
+		case 0b010010: torus(block,block_pos,block_size,VEC3_Y,2); break;
+		case 0b010001: torus(block,block_pos,block_size,VEC3_Y,3); break;
+		case 0b101000: torus(block,block_pos,block_size,VEC3_X,0); break;
+		case 0b100100: torus(block,block_pos,block_size,VEC3_X,1); break;
+		case 0b011000: torus(block,block_pos,block_size,VEC3_X,2); break;
+		case 0b010100: torus(block,block_pos,block_size,VEC3_X,3); break;
 		}
 		return;
 	}
@@ -660,13 +764,12 @@ void sceneGatherTriangles(uint32_t node_ptr){
 		{VEC3_X,VEC3_Y,VEC3_Z}
 	};
 	for(int i = 0;i < 3;i++){
-		if(rel_pos.a[i] > 0.0f && block->luminance[i * 2]){
-			test(*node,block_pos,axis_table[i],block_size,i * 2,0.0f,0.0f,1.0f,0);
-		}
-		if(rel_pos.a[i] + block_size < 0.0f && block->luminance[i * 2 + 1]){
+		if(rel_pos.a[i] > 0.0f)
+			addSquare(*node,block_pos,axis_table[i],block_size,i * 2,0.0f,0.0f,1.0f,0);
+		if(rel_pos.a[i] + block_size < 0.0f){
 			vec3_t pos = block_pos;
 			pos.a[i] += block_size;
-			test(*node,pos,axis_table[i],block_size,i * 2 + 1,0.0f,0.0f,1.0f,0);
+			addSquare(*node,pos,axis_table[i],block_size,i * 2 + 1,0.0f,0.0f,1.0f,0);
 		}
 	}
 	if(max_x - min_x > RD_MASK_SIZE && max_y - min_y > RD_MASK_SIZE)

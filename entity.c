@@ -16,10 +16,14 @@ entity_t* getNewEntity(){
 }
 
 void entityBehavior(entity_t* entity){
-	return;
-	/*
 	if(!entity->alive)
 		return;
+	if(entity->flags & ENTITY_FLAG_FUSE){
+		if(!entity->fuse--){
+			entity->alive = false;
+			return;
+		}
+	}
 	vec3addvec3(&entity->pos,entity->dir);
 	bool bound_x = entity->pos.x < 0.0f || entity->pos.x > MAP_SIZE * 2.0f;
 	bool bound_y = entity->pos.y < 0.0f || entity->pos.y > MAP_SIZE * 2.0f;
@@ -28,108 +32,24 @@ void entityBehavior(entity_t* entity){
 		entity->alive = false;
 		return;
 	}
-	switch(entity->type){
-	case ENTITY_WATER:
-		node_t node = treeTraverse(entity->pos);
-		if(node.type < BLOCK_PARENT){
-			block_t* block = dynamicArrayGet(block_array,node.index);
-			if(material_array[node.type].flags & MAT_LIQUID){
-				float block_size = (float)((1 << 20) >> node.depth) * MAP_SIZE_INV;
-				float water_height = (node.pos.z + block->ammount) * block_size;
-				if(entity->pos.z < water_height){
-					vec3subvec3(&entity->pos,entity->dir);
-					if(treeTraverse(entity->pos).block){
-						float ammount;
-						if(entity->block_depth > node.depth)
-							ammount = entity->ammount / (1 << (entity->block_depth - node.depth) * 2);
-						else
-							ammount = entity->ammount * (1 << (node.depth - entity->block_depth) * 2);
-						block->ammount_buffer += ammount;
-						entity->alive = false;
-						return;
-					}
-					goto water_new;
-				}
-				break;
-			}
-			vec3subvec3(&entity->pos,entity->dir);
-		water_new:
-			node_t node = treeTraverse(entity->pos);
-			float ammount;
-			if(entity->block_depth > node.depth)
-				ammount = entity->ammount / (1 << (entity->block_depth - node.depth) * 2);
-			else
-				ammount = entity->ammount * (1 << (node.depth - entity->block_depth) * 2);
-			setVoxel(node.pos.x,node.pos.y,node.pos.z,node.depth,entity->block_type,ammount);
-			entity->alive = false;
-			return;
-		}
-		entity->dir.z -= MV_GRAVITY;
-		break;
-	case 3:
-		if(treeTraverse(entity->pos).block){
-			vec3subvec3(&entity->pos,entity->dir);
-			entity->dir = VEC3_ZERO;
-			if(TRND1 < 0.01f)
-				entity->dir = (vec3_t){(TRND1 - 0.5f) * 0.1f,(TRND1 - 0.5f) * 0.1f,TRND1 * 0.1f};
-		}
-		entity->dir.z -= MV_GRAVITY;
-		break;
-	case 2:
-		entity->dir.z -= MV_GRAVITY;
-		float distance_to_player = vec3distance(camera.pos,entity->pos);
-		if(distance_to_player < 0.5f){
-			entity->alive = false;
-			for(int i = 2;i < 8;i++){
-				if(inventory_slot[i].type == -1){
-					inventory_slot[i].type = entity->block_type;
-					inventory_slot[i].ammount = entity->block_ammount;
-					break;
-				}
-				if(inventory_slot[i].type == entity->block_type){
-					inventory_slot[i].ammount += entity->block_ammount;
-					break;
-				}
-			}
-			return;
-		}
-		if(distance_to_player < 5.0f){
-			float pull = 0.03f / distance_to_player;
-			vec3_t to_player = vec3normalizeR(vec3subvec3R(camera.pos,entity->pos));
-			vec3addvec3(&entity->dir,vec3mulR(to_player,pull));
-		}
-		if(node_root[initTraverse(entity->pos).node].block){
-			vec3subvec3(&entity->pos,entity->dir);
-			entity->dir = VEC3_ZERO;
-		}
-		break;
-	case 0:
-		vec3addvec3(&entity->dir,vec3mulR(vec3normalizeR(entity->dir),0.1f));
-		if(entity->fuse++ != 30)
-			break;
-		for(int j = 0;j < 2048;j++){
-			vec3_t color = TRND1 < 0.5f ? (vec3_t){0.2f,1.0f,0.2f} : (vec3_t){0.2f,0.2f,1.0f};
-			spawnLuminantParticle(entity->pos,vec3mulR(vec3rnd(),0.05f),color,TRND1 * 1000);
-		}
-		entity->alive = false;
-		return;
-	case 1:
-		uint32_t node_ptr = initTraverse(entity->pos).node;
-		if(node_root[node_ptr].block){
-			entity->alive = false;
-			return;
-		}
-		if(!entity->fuse--)
-			entity->alive = false;
-		break;
+	if(insideBlock(entity->pos)){
+		vec3subvec3(&entity->pos,entity->dir);
+		entity->dir = VEC3_ZERO;
 	}
-	*/
+	if(entity->flags & ENTITY_FLAG_GRAVITY){
+		entity->dir.z -= MV_GRAVITY;
+	}
 }
-
+#include <stdio.h>
 void entityTick(uint32_t tick_ammount){
 	for(int i = 0;i < ENTITY_AMMOUNT;i++){
 		if(!entity_array[i].alive)
 			continue;
+		node_t node = treeTraverse(entity_array[i].pos);
+		if(node.type != BLOCK_AIR)
+			continue;
+		air_t* air = dynamicArrayGet(air_array,node.index);
+		air->entity = -1;
 	}
 	for(int j = 0;j < tick_ammount;j++){
 		for(int i = 0;i < ENTITY_AMMOUNT;i++){

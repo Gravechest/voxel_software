@@ -124,11 +124,10 @@ char *FRAGsourceUI = ""
 
 void drawBlockOutline(triangle_t* triangles){
 	glBufferData(GL_ARRAY_BUFFER,sizeof(triangle_t) * 8,triangles,GL_DYNAMIC_DRAW);
-	glDrawArrays(GL_LINES,0,8);
+	glDrawArrays(GL_TRIANGLES,0,8);
 }
-#include <stdio.h>
 
-void initGL(HDC context){
+void initGL(void* context){
 	SetPixelFormat(context, ChoosePixelFormat(context, &pfd), &pfd);
 	wglMakeCurrent(context, wglCreateContext(context));
 
@@ -220,7 +219,6 @@ void initGL(HDC context){
 	glGenTextures(1, &texture2);  
 	glBindTexture(GL_TEXTURE_2D, texture2);
 
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 				  
 	glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,TEXTURE_ATLAS_SIZE,TEXTURE_ATLAS_SIZE,0,GL_RGBA,GL_UNSIGNED_BYTE,texture_atlas);

@@ -14,15 +14,6 @@ static vec2_t lookDirectionTable[6] = {
 	{0.0f,M_PI * 0.5f}
 };
 
-vec3_t normal_table[6] = {
-	{-1.0f,0.0f,0.0f},
-	{1.0f,0.0f,0.0f},
-	{0.0f,-1.0f,0.0f},
-	{0.0f,1.0f,0.0f},
-	{0.0f,0.0f,-1.0f},
-	{0.0f,0.0f,	1.0f}
-};
-
 int getLightmapSize(int depth){
 	return 1 << (LM_MAXDEPTH - (int)depth < 0 ? 0 : LM_MAXDEPTH - (int)depth);
 }
@@ -177,6 +168,9 @@ vec3_t sideGetLuminance(vec3_t ray_pos,vec3_t angle,node_hit_t result,uint32_t d
 		};
 		return vec3mulvec3R(rayGetLuminance(pos_new,init.pos,angle_f,init.node,depth + 1),filter);
 	}
+	if(node->type == BLOCK_SPHERE){
+		return VEC3_ZERO;    
+	}
 	vec3_t block_pos;
 	float block_size = getBlockSize(node->depth);
 	block_pos.x = node->pos.x * block_size;
@@ -237,9 +231,7 @@ void setLightMap(vec3_t* color,vec3_t pos,vec3_t normal,uint32_t quality){
 	for(int x = 0;x < quality;x++){
 		for(int y = 0;y < quality;y++){
 			vec3_t angle = getRayAnglePlane(normal,(float)x / quality * 2.0f - 1.0f,(float)y / quality * 2.0f - 1.0f);
-			//printf("%f:%f:%f & ",normal.x,normal.y,normal.z);
-			//printf("%f:%f:%f\n",angle.x,angle.y,angle.z);
-			float weight = tAbsf(vec3dotR(angle,normal));
+			float weight = vec3dotR(angle,normal);
 			vec3_t luminance = rayGetLuminance(pos,init.pos,angle,init.node,0);
 			vec3mul(&luminance,weight);
 			vec3addvec3(&s_color,luminance);
@@ -267,6 +259,76 @@ vec3_t posNew(vec3_t pos,float size,int v_x,int v_y){
 
 #include <Windows.h>
 
+static void cylinder(node_t* node,vec3_t block_pos,float block_size,int axis,int quality){
+	block_t* block = dynamicArrayGet(block_array,node->index);
+	material_t material = material_array[node->type];
+	int axis_table[][3] = {{VEC3_X,VEC3_Y,VEC3_Z},{VEC3_Y,VEC3_Z,VEC3_X},{VEC3_Z,VEC3_X,VEC3_Y}};
+	int axis_v[] = {axis_table[axis][0],axis_table[axis][1],axis_table[axis][2]};
+	vec3_t middle = block_pos;
+	vec3add(&middle,block_size * 0.5f);
+	int triangle_ammount = 16;
+	for(int i = 0;i < triangle_ammount;i++){
+		vec3_t middle_line;
+		middle_line.a[axis_v[1]] = middle.a[axis_v[1]];
+		middle_line.a[axis_v[2]] = middle.a[axis_v[2]];
+		middle_line.a[axis_v[0]] = block_pos.a[axis_v[0]] + (block_size * (i / (triangle_ammount - 1.0f)));
+		for(int j = 0;j < triangle_ammount;j++){
+			vec3_t pos = middle_line;
+			vec2_t offset = vec2rotR((vec2_t){1.0f,0.0f},(j / (triangle_ammount - 1.0f)) * M_PI * 2.0f);
+			pos.a[axis_v[1]] += offset.x * block_size * 0.25f;
+			pos.a[axis_v[2]] += offset.y * block_size * 0.25f;
+			vec3_t normal;
+			normal.a[axis_v[1]] = offset.x;
+			normal.a[axis_v[2]] = offset.y;
+			normal.a[axis_v[0]] = 0.0f;
+			setLightMap(&block->luminance[0][i * 16 + j],pos,normal,quality);
+			if(main_thread_status){
+				main_thread_status = 2;
+				while(main_thread_status == 2)
+					Sleep(1);
+			}
+			vec3mulvec3(&block->luminance[0][i * 16 + j],material.luminance);
+		}
+	}
+}
+
+static void torus(node_t* node,vec3_t block_pos,float block_size,int axis,int rotation,int quality){
+	block_t* block = dynamicArrayGet(block_array,node->index);
+	material_t material = material_array[node->type];
+	int axis_table[][3] = {{VEC3_X,VEC3_Y,VEC3_Z},{VEC3_Y,VEC3_Z,VEC3_X},{VEC3_Z,VEC3_X,VEC3_Y}};
+	int axis_v[] = {axis_table[axis][0],axis_table[axis][1],axis_table[axis][2]};
+	vec3_t middle = block_pos;
+	middle.a[axis_v[0]] += block_size * 0.5f;
+	if(rotation == 2 || rotation == 1)
+		middle.a[axis_v[1]] += block_size;
+	if(rotation & 2)
+		middle.a[axis_v[2]] += block_size;
+	int triangle_ammount = 16;
+	for(int i = 0;i < triangle_ammount;i++){
+		vec2_t offset = vec2rotR((vec2_t){1.0f,0.0f},(i / (triangle_ammount - 1.0f) + rotation) * M_PI * 0.5f);
+		vec3_t middle_line;
+		middle_line.a[axis_v[1]] = middle.a[axis_v[1]] + offset.x * block_size * 0.5f;
+		middle_line.a[axis_v[2]] = middle.a[axis_v[2]] + offset.y * block_size * 0.5f;
+		middle_line.a[axis_v[0]] = middle.a[axis_v[0]];
+		for(int j = 0;j < triangle_ammount;j++){
+			vec3_t pos = middle_line;
+			vec2_t offset2 = vec2rotR((vec2_t){1.0f,0.0f},(j / (triangle_ammount - 1.0f)) * M_PI * 2.0f);
+			pos.a[axis_v[1]] += offset.x * offset2.y * block_size * 0.25f;
+			pos.a[axis_v[2]] += offset.y * offset2.y * block_size * 0.25f;
+			pos.a[axis_v[0]] += offset2.x * block_size * 0.25f;
+			vec3_t normal = vec3subvec3R(pos,middle_line);
+			setLightMap(&block->luminance[0][i * 16 + j],pos,normal,quality);
+			//lightmap[i * 16 + j] = normal;
+			if(main_thread_status){
+				main_thread_status = 2;
+				while(main_thread_status == 2)
+					Sleep(1);
+			}
+			vec3mulvec3(&block->luminance[0][i * 16 + j],material.luminance);
+		}
+	}
+}
+
 void updateLightMapSide(node_t node,vec3_t* lightmap,material_t material,uint32_t side,uint32_t quality){
 	if(!lightmap)
 		return;
@@ -276,15 +338,36 @@ void updateLightMapSide(node_t node,vec3_t* lightmap,material_t material,uint32_
 		float block_size = getBlockSize(node.depth);
 		vec3mul(&lm_pos,block_size);
 		vec3add(&lm_pos,block_size * 0.5f); 
-		for(int i = 0;i < SPHERE_TRIANGLE_COUNT;i++){
-			setLightMap(&lightmap[i],lm_pos,sphere_vertex[i],quality);
-			if(main_thread_status){
-				main_thread_status = 2;
-				while(main_thread_status == 2)
-					Sleep(1);
-			}
-			vec3mulvec3(&lightmap[i],material.luminance);
-		}	
+		block_t* block = dynamicArrayGet(block_array,node.index);
+		switch(block->neighbour){
+		default: 		
+			for(int i = 0;i < SPHERE_TRIANGLE_COUNT;i++){
+				setLightMap(&lightmap[i],lm_pos,sphere_vertex[i],quality);
+				if(main_thread_status){
+					main_thread_status = 2;
+					while(main_thread_status == 2)
+						Sleep(1);
+				}
+				vec3mulvec3(&lightmap[i],material.luminance);
+			}	 
+			break;
+		case 0b000011: cylinder(&node,lm_pos,block_size,VEC3_X,quality); break;
+		case 0b001100: cylinder(&node,lm_pos,block_size,VEC3_Y,quality); break;
+		case 0b110000: cylinder(&node,lm_pos,block_size,VEC3_Z,quality); break;
+		case 0b001010: torus(&node,lm_pos,block_size,VEC3_Z,0,quality); break;
+		case 0b000110: torus(&node,lm_pos,block_size,VEC3_Z,3,quality); break;
+		case 0b001001: torus(&node,lm_pos,block_size,VEC3_Z,1,quality); break;
+		case 0b000101: torus(&node,lm_pos,block_size,VEC3_Z,2,quality); break;
+		case 0b100010: torus(&node,lm_pos,block_size,VEC3_Y,0,quality); break;
+		case 0b100001: torus(&node,lm_pos,block_size,VEC3_Y,1,quality); break;
+		case 0b010010: torus(&node,lm_pos,block_size,VEC3_Y,2,quality); break;
+		case 0b010001: torus(&node,lm_pos,block_size,VEC3_Y,3,quality); break;
+		case 0b101000: torus(&node,lm_pos,block_size,VEC3_X,0,quality); break;
+		case 0b100100: torus(&node,lm_pos,block_size,VEC3_X,1,quality); break;
+		case 0b011000: torus(&node,lm_pos,block_size,VEC3_X,2,quality); break;
+		case 0b010100: torus(&node,lm_pos,block_size,VEC3_X,3,quality); break;
+		}
+
 		return;
 	}
 	

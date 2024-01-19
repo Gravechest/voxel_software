@@ -6,9 +6,12 @@
 
 enum{
 	ENTITY_PARTICLE,
-	ENTITY_ENEMY = 2,
-	ENTITY_WATER = 4
+	ENTITY_ENEMY,
+	ENTITY_WATER
 };
+
+#define ENTITY_FLAG_GRAVITY (1 << 0)
+#define ENTITY_FLAG_FUSE (1 << 1)
 
 typedef struct{
 	union{

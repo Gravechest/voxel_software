@@ -5,6 +5,12 @@
 
 #include "dda.h"
 #include "vec2.h"
+#include "inventory.h"
+
+#define PLAYER_REACH 4.0f
+#define PLAYER_BUILDREACH 8.0f
+
+#define INVENTORY_PASSIVE 0
 
 #define SPHERE_TRIANGLE_COUNT 256
 
@@ -24,7 +30,7 @@
 #define RES_SCALE 1
 #define FOV (vec2_t){600.0f / RES_SCALE,600.0f / RES_SCALE}
 
-#define WND_RESOLUTION (vec2_t){1024 / RES_SCALE,1920 / RES_SCALE}
+#define WND_RESOLUTION (vec2_t){1080 / RES_SCALE,1920 / RES_SCALE}
 #define WND_RESOLUTION_Y (1920 / RES_SCALE)
 #define WND_RESOLUTION_X (1024 / RES_SCALE)
 
@@ -48,29 +54,17 @@
 #define BLOCK_PARENT 0xfe
 
 enum{
-	BLOCK_WHITE,
-	BLOCK_POWDER,
-	BLOCK_BATTERY,
-	BLOCK_WIRE,
-	BLOCK_LAMP,
-	BLOCK_SWITCH,
-	BLOCK_STONE,
-	BLOCK_SKIN,
-	BLOCK_SPAWNLIGHT,
-	BLOCK_COAL,
-	BLOCK_GENERATOR,
-	BLOCK_SPHERE,
-	BLOCK_RED,
-	BLOCK_GREEN,
-	BLOCK_BLUE,
-	BLOCK_EMIT_RED,
-	BLOCK_EMIT_GREEN,
-	BLOCK_EMIT_BLUE,
+	GAMEMODE_SURVIVAL,
+	GAMEMODE_CREATIVE
 };
 
 enum{
-	GAMEMODE_SURVIVAL,
-	GAMEMODE_CREATIVE
+	RECIPY_TORCH,
+	RECIPY_ELEKTRIC1,
+	RECIPY_RESEARCH1,
+	RECIPY_BASIC,
+	RECIPY_GENERATOR,
+	RECIPY_FURNACE
 };
 
 typedef union{
@@ -129,12 +123,41 @@ typedef struct{
 	pixel_t* data_rev;
 }texture_t;
 
+enum{
+	BLOCK_WHITE,
+	BLOCK_POWDER,
+	BLOCK_BATTERY,
+	BLOCK_WIRE,
+	BLOCK_LAMP,
+	BLOCK_SWITCH,
+	BLOCK_STONE,
+	BLOCK_SKIN,
+	BLOCK_SPAWNLIGHT,
+	BLOCK_COAL,
+	BLOCK_GENERATOR,
+	BLOCK_SPHERE,
+	BLOCK_RED,
+	BLOCK_GREEN,
+	BLOCK_BLUE,
+	BLOCK_EMIT_RED,
+	BLOCK_EMIT_GREEN,
+	BLOCK_EMIT_BLUE,
+	BLOCK_TORCH,
+	BLOCK_ELEKTRIC_1,
+	BLOCK_WATER,
+	BLOCK_BASIC,
+	BLOCK_FURNACE,
+};
+
 #define MAT_REFLECT (1 << 0)
 #define MAT_REFRACT (1 << 1)
 #define MAT_LUMINANT (1 << 2)
 #define MAT_LIQUID (1 << 3)
 #define MAT_POWDER (1 << 4)
 #define MAT_POWER (1 << 5)
+#define MAT_PIPE (1 << 6)
+#define MAT_ITEM (1 << 7)
+#define MAT_MENU (1 << 8)
 
 typedef struct{
 	int flags;
@@ -143,6 +166,8 @@ typedef struct{
 	vec2_t texture_pos;
 	vec2_t texture_size;
 	float hardness;
+	int fixed_size;
+	int menu_index;
 }material_t;
 
 typedef struct{
@@ -151,12 +176,13 @@ typedef struct{
 		vec3_t* luminance[6];
 		struct{
 			float ammount;
-			float ammount_buffer;
 			float disturbance;
 		};
 	};
 	uint16_t power_grid[2];
+	uint8_t neighbour;
 	float power;
+	item_t inventory[3];
 }block_t;
 
 typedef struct{
@@ -188,9 +214,10 @@ typedef struct{
 }light_new_stack_t;
 
 typedef struct{
-	int type;
-	uint32_t ammount;
-}inventoryslot_t;
+	char* name;
+	item_t cost[2];
+	int result;
+}craftrecipy_t;
 
 #define ENTITY_LUMINANT (1 << 0)
  
@@ -208,11 +235,19 @@ extern bool context_is_gl;
 extern pixel_t* texture_atlas;
 extern int block_type;
 extern bool model_mode;
-extern inventoryslot_t inventory_slot[9];
 extern uint32_t border_block_table[6][4];
 extern int main_thread_status;
 extern uint8_t sphere_indices[256][3];
 extern vec3_t sphere_vertex[256];
+extern int in_menu;
+extern uint32_t inventory_select;
+extern bool player_gamemode;
+extern int block_type;
+extern vec3_t normal_table[];
+extern int edit_depth;
+extern uint32_t block_menu_block;
+extern craftrecipy_t craft_recipy[];
+extern int craft_ammount;
 
 vec3_t pointToScreenZ(vec3_t point);
 plane_ray_t getPlane(vec3_t pos,vec3_t dir,uint32_t side,float block_size);
@@ -225,3 +260,6 @@ vec3_t getRayAngleCamera(uint32_t x,uint32_t y);
 vec3_t getRayAnglePlane(vec3_t normal,float x,float y);
 float sdCube(vec3_t point,vec3_t cube,float cube_size);
 vec3_t pointToScreenRenderer(vec3_t point);
+void increaseCraftAmmount();
+void decreaseCraftAmmount();
+void playerCraft(int recipy_index);

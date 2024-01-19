@@ -49,7 +49,7 @@ void calculateNodeLuminance(node_t* node,uint32_t quality){
 	
 	if(!s_color.b)
 		s_color.b = 0.001f;
-	air->luminance = (vec3_t){s_color.b,s_color.g,s_color.r};
+	air->luminance = s_color;
 }
 
 void calculateNodeLuminanceTree(uint32_t node_ptr,uint32_t quality){

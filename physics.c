@@ -124,9 +124,11 @@ void walkPhysics(uint32_t tick_ammount){
 			camera.pos.z -= camera.vel.z;
 			camera.vel.z = 0.0f;
 			if(down_z){
-				if(GetKeyState(VK_SPACE) & 0x80){
-					playSound(SOUND_JUMP,vec3addvec3R(camera.pos,(vec3_t){0.01f,0.01f,-1.55f}));
-					camera.vel.z += MV_JUMPHEIGHT;
+				if(!in_menu && !block_menu_block){
+					if(GetKeyState(VK_SPACE) & 0x80){
+						playSound(SOUND_JUMP,vec3addvec3R(camera.pos,(vec3_t){0.01f,0.01f,-1.55f}));
+						camera.vel.z += MV_JUMPHEIGHT;
+					}
 				}
 				static float step_sound_cooldown;
 				step_sound_cooldown += tAbsf(camera.vel.y) + tAbsf(camera.vel.x);
@@ -136,33 +138,35 @@ void walkPhysics(uint32_t tick_ammount){
 				}
 			}
 		}
-		if(key.w){
-			float mod = key.d || key.a ? MV_WALKSPEED * MV_DIAGONAL : MV_WALKSPEED;
-			if(hit[VEC3_Z] == -1.0f || hit[VEC3_Z] && !down_z)
-				mod *= 0.01f;
-			camera.vel.x += cosf(camera.dir.x) * mod * 2.0f;
-			camera.vel.y += sinf(camera.dir.x) * mod * 2.0f;
-		}
-		if(key.s){
-			float mod = key.d || key.a ? MV_WALKSPEED * MV_DIAGONAL : MV_WALKSPEED;
-			if(hit[VEC3_Z] == -1.0f || hit[VEC3_Z] && !down_z)
-				mod *= 0.01f;
-			camera.vel.x -= cosf(camera.dir.x) * mod * 2.0f;
-			camera.vel.y -= sinf(camera.dir.x) * mod * 2.0f;
-		}
-		if(key.d){
-			float mod = key.s || key.w ? MV_WALKSPEED * MV_DIAGONAL : MV_WALKSPEED;
-			if(hit[VEC3_Z] == -1.0f || hit[VEC3_Z] && !down_z)
-				mod *= 0.01f;
-			camera.vel.x += cosf(camera.dir.x + M_PI * 0.5f) * mod * 2.0f;
-			camera.vel.y += sinf(camera.dir.x + M_PI * 0.5f) * mod * 2.0f;
-		}
-		if(key.a){
-			float mod = key.s || key.w ? MV_WALKSPEED * MV_DIAGONAL : MV_WALKSPEED;
-			if(hit[VEC3_Z] == -1.0f || hit[VEC3_Z] && !down_z)
-				mod *= 0.01f;
-			camera.vel.x -= cosf(camera.dir.x + M_PI * 0.5f) * mod * 2.0f;
-			camera.vel.y -= sinf(camera.dir.x + M_PI * 0.5f) * mod * 2.0f;
+		if(!in_menu && !block_menu_block){
+			if(key.w){
+				float mod = key.d || key.a ? MV_WALKSPEED * MV_DIAGONAL : MV_WALKSPEED;
+				if(hit[VEC3_Z] == -1.0f || hit[VEC3_Z] && !down_z)
+					mod *= 0.01f;
+				camera.vel.x += cosf(camera.dir.x) * mod * 2.0f;
+				camera.vel.y += sinf(camera.dir.x) * mod * 2.0f;
+			}
+			if(key.s){
+				float mod = key.d || key.a ? MV_WALKSPEED * MV_DIAGONAL : MV_WALKSPEED;
+				if(hit[VEC3_Z] == -1.0f || hit[VEC3_Z] && !down_z)
+					mod *= 0.01f;
+				camera.vel.x -= cosf(camera.dir.x) * mod * 2.0f;
+				camera.vel.y -= sinf(camera.dir.x) * mod * 2.0f;
+			}
+			if(key.d){
+				float mod = key.s || key.w ? MV_WALKSPEED * MV_DIAGONAL : MV_WALKSPEED;
+				if(hit[VEC3_Z] == -1.0f || hit[VEC3_Z] && !down_z)
+					mod *= 0.01f;
+				camera.vel.x += cosf(camera.dir.x + M_PI * 0.5f) * mod * 2.0f;
+				camera.vel.y += sinf(camera.dir.x + M_PI * 0.5f) * mod * 2.0f;
+			}
+			if(key.a){
+				float mod = key.s || key.w ? MV_WALKSPEED * MV_DIAGONAL : MV_WALKSPEED;
+				if(hit[VEC3_Z] == -1.0f || hit[VEC3_Z] && !down_z)
+					mod *= 0.01f;
+				camera.vel.x -= cosf(camera.dir.x + M_PI * 0.5f) * mod * 2.0f;
+				camera.vel.y -= sinf(camera.dir.x + M_PI * 0.5f) * mod * 2.0f;
+			}
 		}
 		vec3mul(&camera.vel,hit[VEC3_Z] == -1.0f || hit[VEC3_Z] && !down_z ? AIR_FRICTION : GROUND_FRICTION); 
 		camera.vel.z -= MV_GRAVITY;
@@ -182,28 +186,30 @@ void physics(uint32_t tick_ammount){
 	}
 	float mod = (GetKeyState(VK_LCONTROL) & 0x80) ? 3.0f : 1.0f;
 	mod *= tick_ammount;
-	if(key.w){
-		float mod_2 = mod * (key.d || key.a ? MV_FLYSPEED * MV_DIAGONAL : MV_FLYSPEED);
-		camera.pos.x += cosf(camera.dir.x) * mod_2;
-		camera.pos.y += sinf(camera.dir.x) * mod_2;
+	if(!in_menu && !block_menu_block){
+		if(key.w){
+			float mod_2 = mod * (key.d || key.a ? MV_FLYSPEED * MV_DIAGONAL : MV_FLYSPEED);
+			camera.pos.x += cosf(camera.dir.x) * mod_2;
+			camera.pos.y += sinf(camera.dir.x) * mod_2;
+		}
+		if(key.s){
+			float mod_2 = mod * (key.d || key.a ? MV_FLYSPEED * MV_DIAGONAL : MV_FLYSPEED);
+			camera.pos.x -= cosf(camera.dir.x) * mod_2;
+			camera.pos.y -= sinf(camera.dir.x) * mod_2;
+		}
+		if(key.d){
+			float mod_2 = mod * (key.s || key.w ? MV_FLYSPEED * MV_DIAGONAL : MV_FLYSPEED);
+			camera.pos.x += cosf(camera.dir.x + M_PI * 0.5f) * mod_2;
+			camera.pos.y += sinf(camera.dir.x + M_PI * 0.5f) * mod_2;
+		}
+		if(key.a){
+			float mod_2 = mod * (key.s || key.w ? MV_FLYSPEED * MV_DIAGONAL : MV_FLYSPEED);
+			camera.pos.x -= cosf(camera.dir.x + M_PI * 0.5f) * mod_2;
+			camera.pos.y -= sinf(camera.dir.x + M_PI * 0.5f) * mod_2;
+		}
+		if(GetKeyState(VK_SPACE) & 0x80) 
+			camera.pos.z += MV_FLYSPEED * mod;
+		if(GetKeyState(VK_LSHIFT) & 0x80) 
+			camera.pos.z -= MV_FLYSPEED * mod;
 	}
-	if(key.s){
-		float mod_2 = mod * (key.d || key.a ? MV_FLYSPEED * MV_DIAGONAL : MV_FLYSPEED);
-		camera.pos.x -= cosf(camera.dir.x) * mod_2;
-		camera.pos.y -= sinf(camera.dir.x) * mod_2;
-	}
-	if(key.d){
-		float mod_2 = mod * (key.s || key.w ? MV_FLYSPEED * MV_DIAGONAL : MV_FLYSPEED);
-		camera.pos.x += cosf(camera.dir.x + M_PI * 0.5f) * mod_2;
-		camera.pos.y += sinf(camera.dir.x + M_PI * 0.5f) * mod_2;
-	}
-	if(key.a){
-		float mod_2 = mod * (key.s || key.w ? MV_FLYSPEED * MV_DIAGONAL : MV_FLYSPEED);
-		camera.pos.x -= cosf(camera.dir.x + M_PI * 0.5f) * mod_2;
-		camera.pos.y -= sinf(camera.dir.x + M_PI * 0.5f) * mod_2;
-	}
-	if(GetKeyState(VK_SPACE) & 0x80) 
-		camera.pos.z += MV_FLYSPEED * mod;
-	if(GetKeyState(VK_LSHIFT) & 0x80) 
-		camera.pos.z -= MV_FLYSPEED * mod;
 }
