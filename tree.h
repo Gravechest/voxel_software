@@ -13,7 +13,7 @@
 #define TREE_RAY_LIQUID (1 << 0)
 
 typedef struct{
-	int node;
+	uint32_t node;
 	int side;
 }node_hit_t;
 
@@ -46,7 +46,6 @@ node_hit_t treeRayI(ray3i_t ray,uint32_t node_ptr);
 uint32_t traverseTreeItt(ray3i_t ray,uint32_t node_ptr);
 void setVoxel(uint32_t x,uint32_t y,uint32_t z,int depth,uint32_t material,float ammount);
 void setVoxelSolid(uint32_t x,uint32_t y,uint32_t z,uint32_t depth,uint32_t material);
-void removeVoxel(uint32_t node_ptr);
 block_t* insideBlock(vec3_t pos);
 uint32_t getNode(int x,int y,int z,int depth);
 uint32_t getNodeFromPos(vec3_t pos,uint32_t depth);

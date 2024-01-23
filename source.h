@@ -129,12 +129,12 @@ enum{
 	BLOCK_BATTERY,
 	BLOCK_WIRE,
 	BLOCK_LAMP,
+	BLOCK_GENERATOR,
 	BLOCK_SWITCH,
 	BLOCK_STONE,
 	BLOCK_SKIN,
 	BLOCK_SPAWNLIGHT,
 	BLOCK_COAL,
-	BLOCK_GENERATOR,
 	BLOCK_SPHERE,
 	BLOCK_RED,
 	BLOCK_GREEN,
@@ -162,6 +162,7 @@ enum{
 typedef struct{
 	int flags;
 	vec3_t luminance;
+	vec3_t luminance_secundair;
 	float light_emit;
 	vec2_t texture_pos;
 	vec2_t texture_size;
@@ -183,6 +184,12 @@ typedef struct{
 	uint8_t neighbour;
 	float power;
 	item_t inventory[3];
+	uint8_t recipy_select;
+	union{
+		float craft_progress;
+		float burn_progress;
+		uint8_t on;
+	};
 }block_t;
 
 typedef struct{
@@ -217,6 +224,7 @@ typedef struct{
 	char* name;
 	item_t cost[2];
 	int result;
+	float duration;
 }craftrecipy_t;
 
 #define ENTITY_LUMINANT (1 << 0)
@@ -225,7 +233,7 @@ extern camera_t camera;
 extern int test_bool;
 extern material_t material_array[];
 extern vram_t vram;
-extern int global_tick;
+extern uint64_t global_tick;
 extern float camera_exposure;
 extern bool setting_smooth_lighting;
 extern bool setting_fly;
@@ -248,6 +256,7 @@ extern int edit_depth;
 extern uint32_t block_menu_block;
 extern craftrecipy_t craft_recipy[];
 extern int craft_ammount;
+extern ivec2 window_size;
 
 vec3_t pointToScreenZ(vec3_t point);
 plane_ray_t getPlane(vec3_t pos,vec3_t dir,uint32_t side,float block_size);
@@ -263,3 +272,4 @@ vec3_t pointToScreenRenderer(vec3_t point);
 void increaseCraftAmmount();
 void decreaseCraftAmmount();
 void playerCraft(int recipy_index);
+void changeCraftRecipy(int recipy);

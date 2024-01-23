@@ -1,5 +1,6 @@
 #include "gui.h"
 #include "opengl.h"
+#include "tree.h"
 
 dynamic_array_t gui_array[] = {
 	{.element_size = sizeof(gui_t)},
@@ -19,6 +20,30 @@ void copyGUI(dynamic_array_t* dst,dynamic_array_t src){
 
 void initGUI(){
 	gui_t element;
+	element = (gui_t){
+		.offset = {0.26f,0.535f},
+		.type = GUI_ELEMENT_PROGRESS,
+		.size = {0.19f,0.05f},
+	};
+	dynamicArrayAdd(&gui_array[GUI_CRAFT_INVENTORY],&element);
+	element = (gui_t){
+		.offset = {0.079f,0.505f},
+		.type = GUI_ELEMENT_ITEM,
+		.value = 0,
+	};
+	dynamicArrayAdd(&gui_array[GUI_CRAFT_INVENTORY],&element);
+	element = (gui_t){
+		.offset = {0.179f,0.505f},
+		.type = GUI_ELEMENT_ITEM,
+		.value = 1,
+	};
+	dynamicArrayAdd(&gui_array[GUI_CRAFT_INVENTORY],&element);
+	element = (gui_t){
+		.offset = {0.485f,0.505f},
+		.type = GUI_ELEMENT_ITEM,
+		.value = 2,
+	};
+	dynamicArrayAdd(&gui_array[GUI_CRAFT_INVENTORY],&element);
 	element = (gui_t){
 		.offset = {-0.193f,0.47f},
 		.type = GUI_ELEMENT_BUTTON,
@@ -40,61 +65,80 @@ void initGUI(){
 	};
 	dynamicArrayAdd(&gui_array[GUI_CRAFT_AMMOUNT],&element);
 	element = (gui_t){
-		.offset = {0.05f * RD_RATIO,0.07f},
+		.offset = {0.0f * RD_RATIO,0.0f},
 		.type = GUI_ELEMENT_BUTTON,
 		.button = {
 			.size = {0.45f * RD_RATIO,0.45f},
-			.f_int = playerCraft,
+			.f_int = changeCraftRecipy,
 		}
 	};
 	dynamicArrayAdd(&gui_array[GUI_CRAFT_TEMPLATE],&element);
 	element = (gui_t){
-		.offset = {{0.05f * RD_RATIO,-0.38f}},
+		.offset = {{0.0f * RD_RATIO,-0.45f}},
 		.type = GUI_ELEMENT_BUTTON,
 		.button = {
 			.size = {0.45f * RD_RATIO,0.45f},
-			.f_int = playerCraft,
+			.f_int = changeCraftRecipy,
 		}
 	};
 	dynamicArrayAdd(&gui_array[GUI_CRAFT_TEMPLATE],&element);
 	element = (gui_t){
-		.offset = {-0.4f * RD_RATIO,0.07f},
+		.offset = {-0.45f * RD_RATIO,0.0f},
 		.type = GUI_ELEMENT_BUTTON,
 		.button = {
 			.size = {0.45f * RD_RATIO,0.45f},
-			.f_int = playerCraft,
+			.f_int = changeCraftRecipy,
 		}
 	};
 	dynamicArrayAdd(&gui_array[GUI_CRAFT_TEMPLATE],&element);
 	element = (gui_t){
-		.offset = {-0.4f * RD_RATIO,-0.38f},
+		.offset = {-0.45f * RD_RATIO,-0.45f},
 		.type = GUI_ELEMENT_BUTTON,
 		.button = {
 			.size = {0.45f * RD_RATIO,0.45f},
-			.f_int = playerCraft,
+			.f_int = changeCraftRecipy,
 		}
 	};
 	dynamicArrayAdd(&gui_array[GUI_CRAFT_TEMPLATE],&element);
+	element = (gui_t){
+		.offset = {0.0f,0.0f},
+		.type = GUI_ELEMENT_ITEM,
+		.value = 0,
+	};
+	dynamicArrayAdd(&gui_array[GUI_GENERATOR],&element);
+	element = (gui_t){
+		.offset = {-0.2f,-0.15f},
+		.type = GUI_ELEMENT_PROGRESS,
+		.size = {0.4f,0.1f},
+		.value = 0,
+	};
+	dynamicArrayAdd(&gui_array[GUI_GENERATOR],&element);
 	copyGUI(&gui_array[GUI_CRAFT_MENU],gui_array[GUI_CRAFT_TEMPLATE]);
 	((gui_t*)gui_array[GUI_CRAFT_MENU].data)[0].button.value = RECIPY_TORCH;
 	((gui_t*)gui_array[GUI_CRAFT_MENU].data)[1].button.value = RECIPY_ELEKTRIC1;
 	((gui_t*)gui_array[GUI_CRAFT_MENU].data)[2].button.value = RECIPY_RESEARCH1;
 	((gui_t*)gui_array[GUI_CRAFT_MENU].data)[3].button.value = RECIPY_BASIC;
+	((gui_t*)gui_array[GUI_CRAFT_MENU].data)[0].button.f_void = playerCraft;
+	((gui_t*)gui_array[GUI_CRAFT_MENU].data)[1].button.f_void = playerCraft;
+	((gui_t*)gui_array[GUI_CRAFT_MENU].data)[2].button.f_void = playerCraft;
+	((gui_t*)gui_array[GUI_CRAFT_MENU].data)[3].button.f_void = playerCraft;
 	copyGUI(&gui_array[GUI_CRAFT_MENU],gui_array[GUI_CRAFT_AMMOUNT]);
 	
 	copyGUI(&gui_array[GUI_CRAFT_BASIC],gui_array[GUI_CRAFT_TEMPLATE]);
 	((gui_t*)gui_array[GUI_CRAFT_BASIC].data)[0].button.value = RECIPY_FURNACE;
-	((gui_t*)gui_array[GUI_CRAFT_BASIC].data)[1].button.value = RECIPY_FURNACE;
-	((gui_t*)gui_array[GUI_CRAFT_BASIC].data)[2].button.value = RECIPY_FURNACE;
-	((gui_t*)gui_array[GUI_CRAFT_BASIC].data)[3].button.value = RECIPY_FURNACE;
+	((gui_t*)gui_array[GUI_CRAFT_BASIC].data)[1].button.value = 0;
+	((gui_t*)gui_array[GUI_CRAFT_BASIC].data)[2].button.value = 0;
+	((gui_t*)gui_array[GUI_CRAFT_BASIC].data)[3].button.value = 0;
 	copyGUI(&gui_array[GUI_CRAFT_BASIC],gui_array[GUI_CRAFT_AMMOUNT]);
+	copyGUI(&gui_array[GUI_CRAFT_BASIC],gui_array[GUI_CRAFT_INVENTORY]);
 
 	copyGUI(&gui_array[GUI_CRAFT_ELEKTRIC1],gui_array[GUI_CRAFT_TEMPLATE]);
-	((gui_t*)gui_array[GUI_CRAFT_ELEKTRIC1].data)[0].button.value = RECIPY_TORCH;
+	((gui_t*)gui_array[GUI_CRAFT_ELEKTRIC1].data)[0].button.value = RECIPY_GENERATOR;
 	((gui_t*)gui_array[GUI_CRAFT_ELEKTRIC1].data)[1].button.value = RECIPY_ELEKTRIC1;
 	((gui_t*)gui_array[GUI_CRAFT_ELEKTRIC1].data)[2].button.value = RECIPY_RESEARCH1;
 	((gui_t*)gui_array[GUI_CRAFT_ELEKTRIC1].data)[3].button.value = RECIPY_BASIC;
 	copyGUI(&gui_array[GUI_CRAFT_ELEKTRIC1],gui_array[GUI_CRAFT_AMMOUNT]);
+	copyGUI(&gui_array[GUI_CRAFT_ELEKTRIC1],gui_array[GUI_CRAFT_INVENTORY]);
 	element = (gui_t){
 		.offset = {-0.05f * RD_RATIO,-0.05f},
 		.type = GUI_ELEMENT_ITEM
@@ -152,7 +196,7 @@ void drawNumber(vec2_t pos,vec2_t size,uint32_t number){
 	uint32_t length = 0;
 	for(uint32_t i = number;i;i /= 10)
 		length++;
-	pos.x += size.x * length;
+	pos.x += size.x * (length - 1);
 	for(int i = 0;i < length;i++){
 		drawChar(pos,size,number % 10 + 0x30);
 		number /= 10;
@@ -166,18 +210,21 @@ void drawString(vec2_t pos,float size,char* str){
 		pos.x += size * 0.6f;
 	}
 }
-
+#include <stdio.h>
 void drawGUI(dynamic_array_t gui_array){
 	for(int i = 0;i < gui_array.size;i++){
 		gui_t* element = dynamicArrayGet(gui_array,i);
 		switch(element->type){
-		case GUI_ELEMENT_ITEM:
-			guiInventoryContent(element->item,element->offset,RD_SQUARE(0.1f));
+		case GUI_ELEMENT_PROGRESS:
+			guiProgressBar(element->offset,element->size,*element->progress);
 			break;
-		case GUI_ELEMENT_BUTTON:
+		case GUI_ELEMENT_ITEM:
+			guiInventory(element->item,element->offset,(vec3_t){1.0f,1.0f,1.0f});
+			break;
+		case GUI_ELEMENT_BUTTON:;
 			button_t button = element->button;
-			if(button.f_void == playerCraft){
-				vec2_t offset = element->offset;
+			if(button.f_void == changeCraftRecipy || button.f_void == playerCraft){
+				vec2_t offset = vec2addvec2R(element->offset,(vec2_t){0.05f,0.03f});
 				craftrecipy_t recipy = craft_recipy[button.value];
 				drawString(vec2addvec2R(offset,(vec2_t){-0.02f,0.3f}),0.02f,recipy.name);
 				item_t cost_1 = {.type = recipy.cost[0].type,.ammount = recipy.cost[0].ammount * craft_ammount};
@@ -186,7 +233,12 @@ void drawGUI(dynamic_array_t gui_array){
 				guiInventoryContent(&cost_2,offset,RD_SQUARE(0.1f));
 				guiInventoryContent(&cost_1,vec2addvec2R(offset,(vec2_t){0.0f,0.15f}),RD_SQUARE(0.1f));	
 				guiInventoryContent(&result,vec2addvec2R(offset,(vec2_t){0.1f,0.075f}),RD_SQUARE(0.1f));
-				break;
+			}
+			if(button.f_void == changeCraftRecipy){
+				node_t* node = dynamicArrayGet(node_root,block_menu_block);
+				block_t* block = dynamicArrayGet(block_array,node->index);
+				if(block->recipy_select == button.value)
+					guiFrame(element->offset,button.size,(vec3_t){0.0f,0.0f,0.0f},0.01f);
 			}
 			if(button.f_void == increaseCraftAmmount){
 				drawChar((vec2_t){-0.17f,0.515f},RD_SQUARE(0.03f),'+');
@@ -201,6 +253,12 @@ void drawGUI(dynamic_array_t gui_array){
 			break;
 		}
 	}
+}
+
+void guiProgressBar(vec2_t pos,vec2_t size,float progress){
+	guiFrame(pos,size,(vec3_t){0.2f,0.2f,0.2f},0.005f);
+	guiRectangle(pos,(vec2_t){progress * size.x,size.y},(vec3_t){0.2f,1.0f,0.2f});
+	guiRectangle((vec2_t){pos.x + progress * size.x,pos.y},(vec2_t){(1.0f - progress) * size.x,size.y},VEC3_ZERO);
 }
 
 void guiInventoryContent(item_t* slot,vec2_t pos,vec2_t size){
@@ -224,7 +282,7 @@ void guiInventoryContent(item_t* slot,vec2_t pos,vec2_t size){
 		else
 			drawChar(vec2addvec2R(pos,(vec2_t){0.066f,0.085f}),vec2mulR(size,0.3f),behind);
 	}
-	drawNumber(vec2addvec2R(pos,(vec2_t){-0.02f,0.085f}),vec2mulR(size,0.3f),ammount);
+	drawNumber(vec2addvec2R(pos,(vec2_t){-0.005f,0.085f}),vec2mulR(size,0.3f),ammount);
 	material_t material = material_array[slot->type];
 	vec2_t texture_coord[4];
 	texture_coord[0] = material.texture_pos;
@@ -239,3 +297,9 @@ void guiInventoryContent(item_t* slot,vec2_t pos,vec2_t size){
 	triangles[triangle_count++] = (triangle_t){pos.x + size.x,pos.y,1.0f,texture_coord[2],material.luminance,1.0f};
 	triangles[triangle_count++] = (triangle_t){pos.x + size.x,pos.y + size.y,1.0f,texture_coord[3],material.luminance,1.0f};
 }
+
+void guiInventory(item_t* item,vec2_t pos,vec3_t frame_color){
+	guiInventoryContent(item,pos,RD_SQUARE(0.1f));
+	guiFrame(vec2subvec2R(pos,(vec2_t){0.02f,0.025f}),RD_SQUARE(0.15f),VEC3_ZERO,0.01f);
+	guiFrame(vec2subvec2R(pos,(vec2_t){0.022f,0.03f}),RD_SQUARE(0.15f),frame_color,0.02f);
+};

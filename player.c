@@ -61,13 +61,13 @@ void playerAttack(){
 		entity_t* entity = &entity_array[i];
 		if(!entity->alive)
 			continue;
-		if(!entity->type == 3)
+		if(!(entity->flags & ENTITY_FLAG_ENEMY))
 			continue;
-		float distance = rayIntersectSphere(camera.pos,entity->pos,ray_dir,entity->size * 2.0f);
-		if(distance < 0.0f)
+		float distance = rayIntersectSphere(camera.pos,entity->pos,ray_dir,entity->size * 1.5f);
+		if(distance > PLAYER_REACH || distance < 0.0f)
 			continue;
+		spawnNumberParticle(entity->pos,30);
 		playSound(SOUND_PUNCH,entity->pos);
-		spawnNumberParticle(entity->pos,getLookAngle((vec2_t){camera.dir.x + M_PI * 0.5f,camera.dir.y}),30);
 		if(entity->health < 30){
 			entity->alive = false;
 			return;

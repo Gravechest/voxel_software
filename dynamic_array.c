@@ -3,9 +3,6 @@
 #include "dynamic_array.h"
 #include "memory.h"
 
-#include <stdio.h>
-#include <Windows.h>
-
 void dynamicArrayAdd(dynamic_array_t* dynamic_array,void* data){
 	if(dynamic_array->free_ptr){
 		dynamic_array->free_ptr--;
@@ -39,7 +36,12 @@ uint32_t dynamicArrayTop(dynamic_array_t dynamic_array){
 }
 
 void dynamicArrayReset(dynamic_array_t* dynamic_array){
-	tFree(dynamic_array->data);
+	if(dynamic_array->data)
+		tFree(dynamic_array->data);
+	if(dynamic_array->free)
+		tFree(dynamic_array->free);
 	dynamic_array->data = 0;
 	dynamic_array->size = 0;
+	dynamic_array->free = 0;
+	dynamic_array->free_ptr = 0;
 }

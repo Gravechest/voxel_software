@@ -45,6 +45,8 @@ vec3_t music_box_pos;
 
 bool context_is_gl;
 
+uint64_t global_tick;
+
 int proc(HWND hwnd,uint32_t msg,WPARAM wParam,LPARAM lParam);
 
 WNDCLASSA wndclass = {.lpfnWndProc = (WNDPROC)proc,.lpszClassName = "class"};
@@ -52,6 +54,8 @@ BITMAPINFO bmi = {sizeof(BITMAPINFOHEADER),0,0,1,32,BI_RGB};
 void* window;
 void* context;
 vram_t vram;
+
+ivec2 window_size;
 
 #define SPAWN_POS (vec3_t){MAP_SIZE + 2.0f,MAP_SIZE + 2.0f,MAP_SIZE + 0.5f}
 
@@ -69,8 +73,6 @@ int edit_depth = 7;
 bool is_rendering;
 
 int test_bool = 0;
-
-unsigned int global_tick;
 
 uint32_t light_new_stack_ptr;
 light_new_stack_t light_new_stack[LIGHT_NEW_STACK_SIZE];
@@ -131,40 +133,46 @@ craftrecipy_t craft_recipy[] = {
 		.result = BLOCK_FURNACE,
 		.cost[0] = {.type = BLOCK_STONE,.ammount = 24},
 		.cost[1] = {.type = ITEM_VOID},
+		.duration = 1.0f,
 	},
 	[RECIPY_TORCH] = {
 		.name = "torch",
 		.result = BLOCK_TORCH,
 		.cost[0] = {.type = BLOCK_COAL,.ammount = 1},
-		.cost[1] = {.type = BLOCK_STONE,.ammount = 4}
+		.cost[1] = {.type = BLOCK_STONE,.ammount = 4},
+		.duration = 1.0f,
 	},
 	[RECIPY_ELEKTRIC1] = {
 		.name = "elektric 1",
 		.result = BLOCK_ELEKTRIC_1,
 		.cost[0] = {.type = BLOCK_STONE,.ammount = 16},
-		.cost[1] = {.type = ITEM_VOID}
+		.cost[1] = {.type = ITEM_VOID},
+		.duration = 1.0f,
 	},
 	[RECIPY_RESEARCH1] = {
 		.name = "research 1",
 		.result = 0,
 		.cost[0] = {.type = ITEM_VOID},
-		.cost[1] = {.type = ITEM_VOID}
+		.cost[1] = {.type = ITEM_VOID},
+		.duration = 1.0f,
 	},
 	[RECIPY_BASIC] = {
 		.name = "basic",
 		.result = BLOCK_BASIC,
 		.cost[0] = {.type = BLOCK_STONE,.ammount = 16},
-		.cost[1] = {.type = ITEM_VOID}
+		.cost[1] = {.type = ITEM_VOID},
+		.duration = 1.0f,
 	},
 	[RECIPY_GENERATOR] = {
 		.name = "generator",
 		.result = BLOCK_GENERATOR,
 		.cost[0] = {.type = BLOCK_COAL,.ammount = 1},
-		.cost[1] = {.type = BLOCK_STONE,.ammount = 4}
+		.cost[1] = {.type = BLOCK_STONE,.ammount = 4},
+		.duration = 1.0f,
 	},
 };
 
-int block_type = BLOCK_WATER;
+int block_type = BLOCK_GENERATOR;
 
 material_t material_array[] = {
 	[BLOCK_FURNACE] = {
@@ -195,7 +203,7 @@ material_t material_array[] = {
 		.menu_index = GUI_CRAFT_ELEKTRIC1
 	},
 	[BLOCK_TORCH] = {
-		.luminance = {1.0f,0.3f,0.0f},
+		.luminance = {6.0f,2.0f,0.0f},
 		.texture_pos = {0.0f,0.0f},
 		.texture_size = {0.01f,0.01f},
 		.flags = MAT_ITEM | MAT_LUMINANT
@@ -210,7 +218,8 @@ material_t material_array[] = {
 		.luminance = {0.1f,0.5f,0.5f},
 		.texture_pos = {0.0f,0.0f},
 		.texture_size = {0.01f,0.01f},
-		.flags = MAT_MENU
+		.flags = MAT_MENU | MAT_POWER,
+		.menu_index = GUI_GENERATOR,
 	},
 	[BLOCK_COAL] = {
 		.luminance = {0.1f,0.1f,0.1f},
@@ -219,19 +228,19 @@ material_t material_array[] = {
 		.hardness = 64.0f
 	},
 	[BLOCK_EMIT_RED] = {
-		.luminance = {0.9f,0.3f,0.3f},
+		.luminance = {9.0f,3.0f,3.0f},
 		.texture_pos = {0.0f,0.0f},
 		.texture_size = {0.01f,0.01f},
 		.flags = MAT_LUMINANT
 	},
 	[BLOCK_EMIT_GREEN] = {
-		.luminance = {0.3f,0.9f,0.3f},
+		.luminance = {3.0f,9.0f,3.0f},
 		.texture_pos = {0.0f,0.0f},
 		.texture_size = {0.01f,0.01f},
 		.flags = MAT_LUMINANT
 	},
 	[BLOCK_EMIT_BLUE] = {
-		.luminance = {0.3f,0.3f,0.9f},
+		.luminance = {3.0f,3.0f,9.0f},
 		.texture_pos = {0.0f,0.0f},
 		.texture_size = {0.01f,0.01f},
 		.flags = MAT_LUMINANT
@@ -282,10 +291,11 @@ material_t material_array[] = {
 	},
 	[BLOCK_SWITCH] = {
 		.luminance = {0.9f,0.3f,0.3f},
+		.luminance_secundair = {0.3f,0.9f,0.3f},
 		.texture_pos = {0.0f,0.0f},
 		.texture_size = {0.01f,0.01f},
 		.light_emit = 5.0f,
-		.flags = MAT_POWER
+		.flags = MAT_POWER,
 	},
 	[BLOCK_STONE] = {
 		.luminance = {1.0f,1.0f,1.0f},
@@ -431,10 +441,10 @@ vec3_t getLookAngle(vec2_t angle){
 
 vec3_t getRayAngleCamera(uint32_t x,uint32_t y){
 	vec3_t ray_ang;
-	float pxY = (((float)x * 2.0f * (1.0f / WND_RESOLUTION.x)) - 1.0f);
-	float pxX = (((float)y * 2.0f * (1.0f / WND_RESOLUTION.y)) - 1.0f);
-	float pixelOffsetY = pxY * (1.0f / (FOV.x / WND_RESOLUTION.x * 2.0f));
-	float pixelOffsetX = pxX * (1.0f / (FOV.y / WND_RESOLUTION.y * 2.0f));
+	float pxY = (((float)x * 2.0f * (1.0f / window_size.x)) - 1.0f);
+	float pxX = (((float)y * 2.0f * (1.0f / window_size.y)) - 1.0f);
+	float pixelOffsetY = pxY * (1.0f / (FOV.x / window_size.x * 2.0f));
+	float pixelOffsetX = pxX * (1.0f / (FOV.y / window_size.y * 2.0f));
 	ray_ang.x = camera.tri.x * camera.tri.z;
 	ray_ang.y = camera.tri.y * camera.tri.z;
 	ray_ang.x -= camera.tri.x * camera.tri.w * pixelOffsetY;
@@ -477,8 +487,8 @@ vec3_t pointToScreenRenderer(vec3_t point){
 	if(pos.x <= 0.0f)
 		return (vec3_t){0.0f,0.0f,0.0f};
 	
-	screen_point.x = pos.z * (FOV.x / WND_RESOLUTION.x * 2.0f);
-	screen_point.y = pos.y * (FOV.y / WND_RESOLUTION.y * 2.0f);
+	screen_point.x = pos.z * (FOV.x / window_size.x * 2.0f);
+	screen_point.y = pos.y * (FOV.y / window_size.y * 2.0f);
 	screen_point.z = pos.x;
 	return screen_point;
 }
@@ -497,8 +507,8 @@ vec3_t pointToScreenZ(vec3_t point){
 	if(pos.x <= 0.0f)
 		return (vec3_t){0.0f,0.0f,0.0f};
 	
-	screen_point.x = FOV.x * pos.z / pos.x + WND_RESOLUTION.x / 2.0f;
-	screen_point.y = FOV.y * pos.y / pos.x + WND_RESOLUTION.y / 2.0f;
+	screen_point.x = FOV.x * pos.z / pos.x + window_size.x / 2.0f;
+	screen_point.y = FOV.y * pos.y / pos.x + window_size.y / 2.0f;
 	screen_point.z = pos.x;
 	return screen_point;
 }
@@ -517,8 +527,8 @@ vec2_t pointToScreen(vec3_t point){
 	if(pos.x <= 0.0f)
 		return (vec2_t){0.0f,0.0f};
 	
-	screen_point.x = FOV.x * pos.z / pos.x + WND_RESOLUTION.x / 2.0f;
-	screen_point.y = FOV.y * pos.y / pos.x + WND_RESOLUTION.y / 2.0f;
+	screen_point.x = FOV.x * pos.z / pos.x + window_size.x / 2.0f;
+	screen_point.y = FOV.y * pos.y / pos.x + window_size.y / 2.0f;
 	return screen_point;
 }
 
@@ -597,7 +607,7 @@ void rayRemoveVoxel(vec3_t ray_pos,vec3_t direction,int remove_depth){
 	block_t* block = dynamicArrayGet(block_array,node.index);
 	uint32_t material = node.type;
 
-	removeVoxel(result.node);
+	setVoxelSolid(node.pos.x,node.pos.y,node.pos.z,node.depth,BLOCK_AIR);
 
 	float block_size = (float)MAP_SIZE / (1 << block_depth) * 2.0f;
 
@@ -731,39 +741,6 @@ float rayIntersectSphere(vec3_t ray_pos,vec3_t sphere_pos,vec3_t ray_dir,float r
 	return (-b - sqrtf(h)) / (2.0f * a);
 }
 
-void spawnNumberParticle(vec3_t pos,vec3_t direction,uint32_t number){
-	vec2_t dir = {direction.x,direction.y};
-	dir = vec2normalizeR(dir);
-	char str[8];
-	if(!number)
-		return;
-	uint32_t length = 0;
-	for(uint32_t i = number;i;i /= 10)
-		length++;
-	pos.x += dir.x * length * 0.05f;
-	pos.y += dir.y * length * 0.05f;
-	for(int i = 0;i < length;i++){
-		char c = number % 10 + 0x30 - 0x21;
-		int x = 9 - c / 10;
-		int y = c % 10;
-
-		float t_y = (1.0f / (2048)) * (1024 + x * 8);
-		float t_x = (1.0f / (2048 * 3)) * y * 8;
-		entity_t* entity = getNewEntity();
-		entity->type = 1;
-		entity->pos = pos;
-		entity->dir = (vec3_t){0.0f,0.0f,0.01f};
-		entity->size = 0.1f;
-		entity->health = 300;
-		entity->texture_pos = (vec2_t){t_x,t_y};
-		entity->texture_size = (vec2_t){(1.0f / (2048 * 3)) * 8,(1.0f / (2048)) * 8};
-		entity->color = (vec3_t){1.0f,0.2f,0.2f};
-		number /= 10;
-		pos.x -= dir.x * 0.1f;
-		pos.y -= dir.y * 0.1f;
-	}
-}
-
 void clickLeft(){
 	vec3_t dir = getLookAngle(camera.dir);
 	traverse_init_t init = initTraverse(camera.pos);
@@ -776,19 +753,26 @@ void clickLeft(){
 		block_menu_block = result.node;
 		dynamic_array_t gui = gui_array[material.menu_index];
 		block_t* block = dynamicArrayGet(block_array,node->index);
-		int j = 0;
 		for(int i = 0;i < gui.size;i++){
 			gui_t* element = dynamicArrayGet(gui,i);
 			if(element->type == GUI_ELEMENT_ITEM)
-				element->item = &block->inventory[j++];
+				element->item = &block->inventory[element->value];
+			if(element->type == GUI_ELEMENT_PROGRESS)
+				element->progress = &block->craft_progress;
 		}
+		return;
+	}
+	if(node->type == BLOCK_SWITCH){
+		block_t* block = dynamicArrayGet(block_array,node->index);
+		block->on ^= true;
 		return;
 	}
 	if(player_gamemode == GAMEMODE_SURVIVAL){
 		if(inventory_slot[inventory_select].type == ITEM_VOID){
 			if(player.attack_animation.state)
 				return;
-			player.attack_animation.state = true;
+			player.attack_animation.state = ANIMATION_ACTIVE;
+			playerAttack();
 			return;
 		}
 		playerAddBlock(node,result.side,dir);
@@ -909,34 +893,64 @@ float test_float;
 bool wireframe_mode;
 bool wireframe_mode_change;
 
+bool commandCompare(char* command,char* str){
+	for(int i = 0;*command != ' ' && *command != '\0' && *str != '\0';command++,str++){
+		if(*command != *str)
+			return false;
+	}
+	return true;
+}
+
+ivec2 window_offset;
+
 void executeCommand(){
-	if(!strcmp(console_buffer,"WIREFRAME"))
+	if(commandCompare(console_buffer,"FULLSCREEN")){
+		printf("%i\n",GetWindowLongPtrA(window,GWL_STYLE));
+		SetWindowLongPtrA(window,GWL_STYLE,WS_VISIBLE);
+		SetWindowPos(window,0,window_offset.y,window_offset.x,window_size.y,window_size.x,0);
+	}
+	if(commandCompare(console_buffer,"WINDOW_OFFSET_Y")){
+		window_offset.y = atoi(console_buffer + 16);
+		SetWindowPos(window,0,window_offset.y,window_offset.x,window_size.y,window_size.x,0);
+		glViewport(0,0,window_size.y,window_size.x);
+	}
+	if(commandCompare(console_buffer,"WINDOW_OFFSET_X")){
+		window_offset.x = atoi(console_buffer + 16);
+		SetWindowPos(window,0,window_offset.y,window_offset.x,window_size.y,window_size.x,0);
+		glViewport(0,0,window_size.y,window_size.x);
+	}
+	if(commandCompare(console_buffer,"WINDOW_SIZE")){
+		window_size.y = atoi(console_buffer + 12);
+		window_size.x = window_size.y * RD_RATIO;
+		SetWindowPos(window,0,window_offset.y,window_offset.x,window_size.y,window_size.x,0);
+		glViewport(0,0,window_size.y,window_size.x);
+	}
+	if(commandCompare(console_buffer,"WIREFRAME"))
 		wireframe_mode_change = true;
-	if(!strcmp(console_buffer,"TREE_ITERATION"))
+	if(commandCompare(console_buffer,"TREE_ITERATION"))
 		show_tree_iteration ^= true;
-	if(!strcmp(console_buffer,"CREATE_FLAT")){
+	if(commandCompare(console_buffer,"CREATE_FLAT")){
 		eraseWorld();
 		createFlatWorld();
 	}
-	if(!strcmp(console_buffer,"CREATE_SURVIVAL")){
+	if(commandCompare(console_buffer,"CREATE_SURVIVAL")){
 		eraseWorld();
 		createSurvivalWorld();
 	}
-	if(!strcmp(console_buffer,"TEST_FLOAT")){
+	if(commandCompare(console_buffer,"TEST_FLOAT")){
 		test_float = atof(console_buffer + 11);
-		printf(console_buffer + 11);
 	}
-	if(!strcmp(console_buffer,"GAMEMODE")){
+	if(commandCompare(console_buffer,"GAMEMODE")){
 		player_gamemode ^= true;
 	}
-	if(!strcmp(console_buffer,"O2")){
+	if(commandCompare(console_buffer,"O2")){
 		node_t node = treeTraverse(camera.pos);
 		if(node.type == BLOCK_AIR)
 			((air_t*)dynamicArrayGet(air_array,node.index))->o2 += 0.1f;
 	}
-	if(!strcmp(console_buffer,"QUIT"))
+	if(commandCompare(console_buffer,"QUIT"))
 		ExitProcess(0);
-	if(!strcmp(console_buffer,"FLY"))
+	if(commandCompare(console_buffer,"FLY"))
 		setting_fly ^= true;
 	memset(console_buffer,0,CONSOLE_BUFFER_SIZE);
 	console_cursor = 0;
@@ -989,6 +1003,12 @@ void playerCraft(int recipy_index){
 	inventoryAdd((item_t){recipy.result,craft_ammount});
 }
 
+void changeCraftRecipy(int recipy){
+	node_t* node = dynamicArrayGet(node_root,block_menu_block);
+	block_t* block = dynamicArrayGet(block_array,node->index);
+	block->recipy_select = recipy;
+}
+
 item_t* item_hold_ptr;
 item_t item_hold;
 
@@ -996,8 +1016,8 @@ vec2_t getCursorGUI(){
 	POINT cursor;
 	GetCursorPos(&cursor);
 	vec2_t pos = {
-		(float)cursor.x / WND_RESOLUTION.y * 2.0f - 1.0f,
-		-((float)cursor.y / WND_RESOLUTION.x * 2.0f - 1.0f)
+		(float)cursor.x / window_size.y * 2.0f - 1.0f,
+		-((float)cursor.y / window_size.x * 2.0f - 1.0f)
 	};
 	return pos;
 }
@@ -1011,7 +1031,7 @@ void checkButton(vec2_t point,vec2_t button_pos,button_t button){
 	}
 }
 
-
+bool execute_command;
 
 int proc(HWND hwnd,uint32_t msg,WPARAM wParam,LPARAM lParam){
 	switch(msg){
@@ -1024,7 +1044,7 @@ int proc(HWND hwnd,uint32_t msg,WPARAM wParam,LPARAM lParam){
 			else if(wParam == VK_OEM_PERIOD)
 				console_buffer[console_cursor++] = '.';
 			else if(wParam == VK_SPACE)
-				console_buffer[console_cursor++] = '\0';
+				console_buffer[console_cursor++] = ' ';
 			else if(wParam == VK_OEM_MINUS && GetKeyState(VK_SHIFT) & 0x80)
 				console_buffer[console_cursor++] = '_';
 			else if(wParam == VK_OEM_MINUS)
@@ -1032,7 +1052,7 @@ int proc(HWND hwnd,uint32_t msg,WPARAM wParam,LPARAM lParam){
 			else{
 				switch(wParam){
 				case VK_F3: in_console ^= true; break;
-				case VK_RETURN: executeCommand(); break;
+				case VK_RETURN: execute_command = true; break;
 				case VK_BACK: 
 					if(!console_cursor)
 						break;
@@ -1070,7 +1090,7 @@ int proc(HWND hwnd,uint32_t msg,WPARAM wParam,LPARAM lParam){
 			RECT offset;
 			GetCursorPos(&cur);
 			GetWindowRect(window,&offset);
-			SetCursorPos(offset.left + WND_SIZE.x / 2,offset.top + WND_SIZE.y / 2);
+			SetCursorPos(offset.left + window_size.y / 2,offset.top + window_size.x / 2);
 			in_menu = 0;
 			block_menu_block = 0;
 			break;
@@ -1161,7 +1181,7 @@ int proc(HWND hwnd,uint32_t msg,WPARAM wParam,LPARAM lParam){
 				for(int i = 0;i < gui.size;i++){
 					gui_t* element = dynamicArrayGet(gui,i);
 					if(element->type == GUI_ELEMENT_ITEM){
-						if(pointInSquare(pos,element->offset,0.15f)){
+						if(pointInSquare(pos,vec2addvec2R(element->offset,RD_SQUARE(0.15f)),0.15f)){
 							if(element->item->type == item_hold.type)
 								itemChange(element->item,item_hold.ammount);
 							else if(inventory_slot[i].type != ITEM_VOID)
@@ -1173,6 +1193,8 @@ int proc(HWND hwnd,uint32_t msg,WPARAM wParam,LPARAM lParam){
 					}
 				}
 			}
+			if(!item_hold_ptr)
+				break;
 			for(int i = 0;i < 9;i++){
 				vec2_t offset = (vec2_t){-0.3 + i * 0.17f * RD_RATIO,-0.8f};
 				if(pointInSquare(pos,offset,0.15f)){
@@ -1218,8 +1240,10 @@ int proc(HWND hwnd,uint32_t msg,WPARAM wParam,LPARAM lParam){
 			dynamic_array_t gui = gui_array[material_array[node->type].menu_index];
 			for(int i = 0;i < gui.size;i++){
 				gui_t* element = dynamicArrayGet(gui,i);
+				if(element->type == GUI_ELEMENT_BUTTON)
+					checkButton(pos,element->offset,element->button);
 				if(element->type == GUI_ELEMENT_ITEM){
-					if(pointInSquare(pos,element->offset,0.15f)){
+					if(pointInSquare(pos,vec2addvec2R(element->offset,RD_SQUARE(0.15f)),0.15f)){
 						item_hold_ptr = element->item;
 						item_hold = *element->item;
 						*element->item = (item_t){.type = ITEM_VOID,.ammount = 0};
@@ -1247,11 +1271,11 @@ int proc(HWND hwnd,uint32_t msg,WPARAM wParam,LPARAM lParam){
 		vec2_t r;
 		GetCursorPos(&cur);
 		GetWindowRect(window,&offset);
-		float mx = (float)(cur.x - (offset.left + WND_SIZE.x / 2)) * 0.005f;
-		float my = (float)(cur.y - (offset.top  + WND_SIZE.y / 2)) * 0.005f;
+		float mx = (float)(cur.x - (offset.left + window_size.y / 2)) * 0.005f;
+		float my = (float)(cur.y - (offset.top  + window_size.x / 2)) * 0.005f;
 		camera.dir.x += mx;
 		camera.dir.y -= my;
-		SetCursorPos(offset.left + WND_SIZE.x / 2,offset.top + WND_SIZE.y / 2);
+		SetCursorPos(offset.left + window_size.y / 2,offset.top + window_size.x / 2);
 		physic_mouse_x += mx;
 		break;
 	case WM_DESTROY: case WM_CLOSE:
@@ -1340,16 +1364,17 @@ void generateBlockOutline(){
 		{0,2,4,6},
 		{1,3,5,7},
 	};
+	float fluctuate = cosf(global_tick * 0.003f) * 0.5f + 0.5f;
 	for(int i = 0;i < 6;i++){
 		//backface culling
 		if(vec3dotR(normal_table[i],vec3subvec3R(camera.pos,point[table[i][0]])) < 0.0f)
 			continue;
-		triangle[triangle_c++] = (triangle_t){triang[table[i][0]],(vec2_t){0.0f,0.0f},  (vec3_t){1.0f,1.0f,1.0f},1.0f};
-		triangle[triangle_c++] = (triangle_t){triang[table[i][1]],(vec2_t){0.01f,0.0f}, (vec3_t){1.0f,1.0f,1.0f},1.0f};
-		triangle[triangle_c++] = (triangle_t){triang[table[i][3]],(vec2_t){0.01f,0.01f},(vec3_t){1.0f,1.0f,1.0f},1.0f};
-		triangle[triangle_c++] = (triangle_t){triang[table[i][0]],(vec2_t){0.0f,0.0f},  (vec3_t){1.0f,1.0f,1.0f},1.0f};
-		triangle[triangle_c++] = (triangle_t){triang[table[i][2]],(vec2_t){0.0f,0.01f}, (vec3_t){1.0f,1.0f,1.0f},1.0f};
-		triangle[triangle_c++] = (triangle_t){triang[table[i][3]],(vec2_t){0.01f,0.01f},(vec3_t){1.0f,1.0f,1.0f},1.0f};
+		triangle[triangle_c++] = (triangle_t){triang[table[i][0]],(vec2_t){0.0f,0.0f},  (vec3_t){fluctuate,fluctuate,fluctuate},1.0f};
+		triangle[triangle_c++] = (triangle_t){triang[table[i][1]],(vec2_t){0.01f,0.0f}, (vec3_t){fluctuate,fluctuate,fluctuate},1.0f};
+		triangle[triangle_c++] = (triangle_t){triang[table[i][3]],(vec2_t){0.01f,0.01f},(vec3_t){fluctuate,fluctuate,fluctuate},1.0f};
+		triangle[triangle_c++] = (triangle_t){triang[table[i][0]],(vec2_t){0.0f,0.0f},  (vec3_t){fluctuate,fluctuate,fluctuate},1.0f};
+		triangle[triangle_c++] = (triangle_t){triang[table[i][2]],(vec2_t){0.0f,0.01f}, (vec3_t){fluctuate,fluctuate,fluctuate},1.0f};
+		triangle[triangle_c++] = (triangle_t){triang[table[i][3]],(vec2_t){0.01f,0.01f},(vec3_t){fluctuate,fluctuate,fluctuate},1.0f};
 	}
 	glPolygonMode(GL_FRONT_AND_BACK,GL_LINE);
 	glBufferData(GL_ARRAY_BUFFER,triangle_c * sizeof(triangle_t),triangle,GL_DYNAMIC_DRAW);
@@ -1361,8 +1386,8 @@ void castVisibilityRays(){
 	traverse_init_t init = initTraverse(camera.pos);
 	static uint32_t counter;
 	float luminance_accumulate = 0.0f;
-	for(int x = counter / 16;x < WND_RESOLUTION.x;x += 16){
-		for(int y = counter % 16;y < WND_RESOLUTION.y;y += 16){
+	for(int x = counter / 16;x < window_size.x;x += 16){
+		for(int y = counter % 16;y < window_size.y;y += 16){
 			vec3_t ray_angle = getRayAngleCamera(x,y);
 			node_hit_t hit = treeRay(ray3Create(init.pos,ray_angle),init.node,camera.pos);
 			if(!hit.node)
@@ -1383,7 +1408,7 @@ void castVisibilityRays(){
 				lightNewStackPut(hit.node,block,side);
 		}
 	}
-	luminance_accumulate /= (WND_RESOLUTION.x / 16) * (WND_RESOLUTION.y / 16);
+	luminance_accumulate /= (window_size.x / 16) * (window_size.y / 16);
 	camera.exposure = camera.exposure * 0.99f + (2.0f - tMinf(luminance_accumulate,1.9f)) * 0.01f;
 	camera.exposure = camera.exposure * 0.99f + 0.01f;
 	
@@ -1396,10 +1421,10 @@ int draw_mode;
 
 void collectTreeIteration(){
 	traverse_init_t init = initTraverse(camera.pos);
-	for(int x = 0;x < WND_RESOLUTION.x;x += TREEITERATION_SQUARE_SIZE){
-		for(int y = 0;y < WND_RESOLUTION.y;y += TREEITERATION_SQUARE_SIZE){
+	for(int x = 0;x < window_size.x;x += TREEITERATION_SQUARE_SIZE){
+		for(int y = 0;y < window_size.y;y += TREEITERATION_SQUARE_SIZE){
 			uint32_t c = traverseTreeItt(ray3CreateI(init.pos,getRayAngleCamera(x,y)),init.node);
-			guiRectangle((vec2_t){y * (2.0f / WND_RESOLUTION.y) - 1.0f,x * (2.0f / WND_RESOLUTION.x) - 1.0f},(vec2_t){(2.0f / WND_RESOLUTION.y) * TREEITERATION_SQUARE_SIZE,(2.0f / WND_RESOLUTION.x) * TREEITERATION_SQUARE_SIZE},(vec3_t){c * 0.02f,0.0f,0.0f});
+			guiRectangle((vec2_t){y * (2.0f / window_size.y) - 1.0f,x * (2.0f / window_size.x) - 1.0f},(vec2_t){(2.0f / window_size.y) * TREEITERATION_SQUARE_SIZE,(2.0f / window_size.x) * TREEITERATION_SQUARE_SIZE},(vec3_t){c * 0.02f,0.0f,0.0f});
 		}
 	}
 }
@@ -1412,7 +1437,7 @@ void drawHardware(){
 		for(int j = 0;j < RD_MASK_Y;j++){
 			if(!mask[i][j])
 				continue;
-			guiRectangle((vec2_t){(float)j / RD_MASK_Y * 2.0f - 1.0f,(float)i / RD_MASK_X * 2.0f - 1.0f},(vec2_t){2.0f / (WND_RESOLUTION.y / RD_MASK_SIZE),2.0f / (WND_RESOLUTION.x / RD_MASK_SIZE)},(vec3_t){1.0f,0.0f,0.0f});
+			guiRectangle((vec2_t){(float)j / RD_MASK_Y * 2.0f - 1.0f,(float)i / RD_MASK_X * 2.0f - 1.0f},(vec2_t){2.0f / (window_size.y / RD_MASK_SIZE),2.0f / (window_size.x / RD_MASK_SIZE)},(vec3_t){1.0f,0.0f,0.0f});
 		}
 	}
 	glBufferData(GL_ARRAY_BUFFER,triangle_count * sizeof(triangle_t),triangles,GL_DYNAMIC_DRAW);
@@ -1614,8 +1639,7 @@ void mouseDown(){
 	int depth = tMax(node->depth,edit_depth);
 	block_break_progress += 0.01f / material.hardness * (1 << (depth - 5) * 3) * 0.001f;
 	if(block_break_progress < 1.0f){
-		guiRectangle((vec2_t){-0.1f,-0.2f},(vec2_t){block_break_progress * 0.2f,0.05f},(vec3_t){0.2f,1.0f,0.2f});
-		guiRectangle((vec2_t){-0.1f + block_break_progress * 0.2f,-0.2f},(vec2_t){(1.0f - block_break_progress) * 0.2f,0.05f},VEC3_ZERO);
+		guiProgressBar((vec2_t){-0.1f,-0.2f},(vec2_t){0.2f,0.05f},block_break_progress);
 		return;
 	}
 	vec3_t spawn_pos = vec3addvec3R(camera.pos,vec3mulR(dir,distance));
@@ -1705,8 +1729,16 @@ void menu(){
 		node_t* node = dynamicArrayGet(node_root,block_menu_block);
 		drawGUI(gui_array[material_array[node->type].menu_index]);
 		switch(node->type){
+		case BLOCK_GENERATOR:
+			guiRectangle((vec2_t){-0.45f * RD_RATIO,0.45f},(vec2_t){0.9f * RD_RATIO,0.02f},(vec3_t){0.2f,0.2f,0.2f});
+			guiFrame(RD_SQUARE(-0.47f),(vec2_t){0.92f * RD_RATIO,1.12f},(vec3_t){0.2f,0.2f,0.2f},0.02f);
+			guiFrame(RD_SQUARE(-0.55f),(vec2_t){1.0f * RD_RATIO,1.2f},(vec3_t){0.6f,0.5f,0.1f},0.1f);
+			guiRectangle(RD_SQUARE(-0.45f),(vec2_t){0.9f * RD_RATIO,1.2f},(vec3_t){0.4f,0.4f,0.4f});
+			break;
 		case BLOCK_BASIC:
 		case BLOCK_ELEKTRIC_1:
+			guiFrame((vec2_t){0.45f,0.45f},RD_SQUARE(0.2f),(vec3_t){0.2f,0.2f,0.2f},0.02f);
+			guiRectangle((vec2_t){0.45f,0.45f},RD_SQUARE(0.2f),(vec3_t){0.4f,0.4f,0.4f});
 			drawCraftMenu();
 			break;
 		case BLOCK_FURNACE:
@@ -1718,21 +1750,80 @@ void menu(){
 	}
 }
 
+void blockCraftRecipy(int num_tick){
+	node_t* node = dynamicArrayGet(node_root,block_menu_block);
+	block_t* block = dynamicArrayGet(block_array,node->index);
+	if(block->recipy_select == 0xff)
+		return;
+	craftrecipy_t recipy = craft_recipy[block->recipy_select];
+	if(!block->craft_progress){
+		for(int i = 0;i < 2;i++){
+			for(int j = 0;j < 2;j++){
+				if(recipy.cost[j].type == ITEM_VOID)
+					continue;
+				if(block->inventory[i].type == recipy.cost[j].type)
+					itemChange(&recipy.cost[j],-block->inventory[i].ammount);
+			}
+		}
+		if(!recipy.cost[0].ammount && !recipy.cost[1].ammount){
+			if(block->inventory[2].type != recipy.result && block->inventory[2].type != ITEM_VOID)
+				return;
+			recipy = craft_recipy[block->recipy_select];
+			for(int i = 0;i < 2;i++){
+				for(int j = 0;j < 2;j++){
+					if(recipy.cost[j].type == ITEM_VOID)
+						continue;
+					if(block->inventory[i].type == recipy.cost[j].type)
+						itemChange(&block->inventory[i],-recipy.cost[j].ammount);
+				}
+			}
+			block->craft_progress += 0.01f * num_tick;
+		}
+		return;
+	}
+	block->craft_progress += 0.01f * num_tick;
+	if(block->craft_progress > 1.0f){
+		if(block->inventory[2].type != recipy.result && block->inventory[2].type != ITEM_VOID){
+			block->craft_progress = 1.0f;
+			return;
+		}
+		block->craft_progress = 0.0f;
+		block->inventory[2].type = recipy.result;
+		block->inventory[2].ammount += 1;
+	}
+}
+
 void draw(){
-	uint64_t global_tick = GetTickCount64();
+	global_tick = GetTickCount64();
 	uint64_t time = 0;
 	HANDLE lighting_thread = CreateThread(0,0,lighting,0,0,0);
 	initGL(context);
 	for(;;){
 		is_rendering = true;
+		if(player_gamemode == GAMEMODE_SURVIVAL){
+			if(item_hold_ptr)
+				guiInventoryContent(&item_hold,vec2subvec2R(getCursorGUI(),RD_SQUARE(0.05f)),RD_SQUARE(0.1f));
+			for(int i = 0;i < 8;i++){
+				vec3_t color;
+				if(inventory_select == i)
+					color = (vec3_t){1.0f,0.0f,0.0f};
+				else if(i == 0)
+					color = (vec3_t){1.0f,1.0f,0.0f};
+				else
+					color = (vec3_t){1.0f,1.0f,1.0f};
+				guiInventory(&inventory_slot[i],(vec2_t){-0.363f + i * 0.17f * RD_RATIO,-0.925f},color);
+			}
+		}
 		if(in_console){
 			drawString((vec2_t){-0.8f,0.8f},0.03f,"console");
 			drawString((vec2_t){-0.8f,0.7f},0.02f,console_buffer);
 			guiRectangle((vec2_t){-0.9f,0.1f},RD_SQUARE(0.8f),(vec3_t){0.1f,0.2f,0.25f});
 		}
 		if(!block_menu_block && !in_menu){
-			guiRectangle((vec2_t){-0.0025f * RD_RATIO,-0.02f},(vec2_t){0.005f * RD_RATIO,0.04f},(vec3_t){0.0f,0.0f,0.0f});
-			guiRectangle((vec2_t){-0.02f * RD_RATIO,-0.0025f},(vec2_t){0.04f * RD_RATIO,0.005f},(vec3_t){0.0f,0.0f,0.0f});
+			guiRectangle((vec2_t){-0.0025f * RD_RATIO,-0.02f},(vec2_t){0.005f * RD_RATIO,0.04f},(vec3_t){0.0f,1.0f,0.0f});
+			guiRectangle((vec2_t){-0.02f * RD_RATIO,-0.0025f},(vec2_t){0.04f * RD_RATIO,0.005f},(vec3_t){0.0f,1.0f,0.0f});
+			guiRectangle((vec2_t){-0.005f * RD_RATIO,-0.025f},(vec2_t){0.01f * RD_RATIO,0.05f},(vec3_t){0.0f,0.0f,0.0f});
+			guiRectangle((vec2_t){-0.025f * RD_RATIO,-0.005f},(vec2_t){0.05f * RD_RATIO,0.01f},(vec3_t){0.0f,0.0f,0.0f});
 		}
 		else{
 			vec2_t offset = getCursorGUI();
@@ -1747,25 +1838,7 @@ void draw(){
 			wireframe_mode ^= true;
 			glPolygonMode(GL_FRONT_AND_BACK,wireframe_mode ? GL_LINE : GL_FILL);
 		}
-		if(player_gamemode == GAMEMODE_SURVIVAL){
-			if(item_hold_ptr)
-				guiInventoryContent(&item_hold,vec2subvec2R(getCursorGUI(),RD_SQUARE(0.05f)),RD_SQUARE(0.1f));
-			for(int i = 0;i < 8;i++){
-				guiInventoryContent(&inventory_slot[i],(vec2_t){-0.363f + i * 0.17f * RD_RATIO,-0.925f},RD_SQUARE(0.1f));
-				guiFrame((vec2_t){-0.383f + i * 0.17f * RD_RATIO,-0.95f},RD_SQUARE(0.15f),VEC3_ZERO,0.01f);
-			}
-			for(int i = 0;i < 8;i++){
-				vec3_t color;
-				if(inventory_select == i)
-					color = (vec3_t){1.0f,0.0f,0.0f};
-				else if(i == 0)
-					color = (vec3_t){1.0f,1.0f,0.0f};
-				else
-					color = (vec3_t){1.0f,1.0f,1.0f};
-				guiFrame((vec2_t){-0.385 + i * 0.17f * RD_RATIO,-0.955f},RD_SQUARE(0.15f),color,0.02f);
-			}
-		}
-		float f = tMin(__rdtsc() - time >> 18,WND_RESOLUTION.x - 1);
+		float f = tMin(__rdtsc() - time >> 18,window_size.x - 1);
 		f /= WND_RESOLUTION_X / 2.0f;
 		time = __rdtsc();
 		guiRectangle((vec2_t){-0.9f,-1.0f},(vec2_t){0.01f,f},(vec3_t){0.0f,1.0f,0.0f});
@@ -1795,8 +1868,11 @@ void draw(){
 		}
 		int difference = tick_new - global_tick;
 		int num_tick = difference / 4;
-		blockTick(0);
+		for(int i = 0;i < num_tick;i++)
+			blockTick(0);
 		entityTick(num_tick);
+		if(block_menu_block)
+			blockCraftRecipy(num_tick);
 		if(player.attack_animation.state)
 			progressAnimation(&player.attack_animation,num_tick);
 		for(int i = 0;i < num_tick;i++)
@@ -1819,8 +1895,12 @@ void draw(){
 			mouseDown();
 		else
 			block_break_progress = 0.0f;
-
-		//trySpawnEnemy();
+		if(player_gamemode == GAMEMODE_SURVIVAL)
+			trySpawnEnemy();
+		if(execute_command){
+			executeCommand();
+			execute_command = false;
+		}
 		global_tick = tick_new;
 	}	
 }
@@ -1837,6 +1917,8 @@ uint32_t tNoise(uint32_t seed){
 void main(){ 
 	initGUI();
 	initAnimation();
+	window_size.x = GetSystemMetrics(SM_CYSCREEN);
+	window_size.y = GetSystemMetrics(SM_CXSCREEN);
 	//generate sphere mesh from tetrahedron
 	int indic_c = 4;
 	int vertex_c = 4;
@@ -1886,8 +1968,8 @@ void main(){
 	triangles = tMalloc(sizeof(triangle_t) * 1000000);
 	texture_atlas = tMalloc(sizeof(pixel_t) * TEXTURE_ATLAS_SIZE * TEXTURE_ATLAS_SIZE);
 
-	bmi.bmiHeader.biWidth  = WND_RESOLUTION.y;
-	bmi.bmiHeader.biHeight = WND_RESOLUTION.x;
+	bmi.bmiHeader.biWidth  = window_size.y;
+	bmi.bmiHeader.biHeight = window_size.x;
 
 	for(int x = 0;x < TEXTURE_ATLAS_SIZE * TEXTURE_ATLAS_SIZE;x++)
 		texture_atlas[x] = (pixel_t){255,255,255,0};
@@ -1914,19 +1996,18 @@ void main(){
 	//createFlatWorld();
 	createSurvivalWorld();
 
+
 	vec3_t spawnPos = (vec3_t){camera.pos.x,camera.pos.y,MAP_SIZE};
 	float distance = rayGetDistance(spawnPos,(vec3_t){0.01f,0.01f,-1.0f}) - 5.0f;
 	spawnPos.z -= distance;
 	camera.pos = spawnPos;
 	RegisterClassA(&wndclass);
-	window = CreateWindowExA(0,"class","hello",WS_VISIBLE | WS_POPUP,0,0,WND_SIZE.x,WND_SIZE.y,0,0,wndclass.hInstance,0);
+	window = CreateWindowExA(0,"class","hello",WS_VISIBLE | WS_POPUP,0,0,window_size.y,window_size.x,0,0,wndclass.hInstance,0);
 	context = GetDC(window);
 	ShowCursor(false);
 
 	initSound(window);
 	CreateThread(0,0,(LPTHREAD_START_ROUTINE)draw,0,0,0);
-
-	SetThreadPriority(physics_thread,THREAD_PRIORITY_ABOVE_NORMAL);
 
 	MSG msg;
 	while(GetMessageA(&msg,window,0,0)){

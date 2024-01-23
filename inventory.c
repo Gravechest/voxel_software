@@ -21,10 +21,12 @@ void changeInventorySelect(int select){
 }
 
 void itemChange(item_t* item,int ammount){
-	if(-ammount >= item->ammount){
-		item->ammount = 0;
-		item->type = ITEM_VOID;
-		return;
+	if(ammount < 0){
+		if(-ammount >= item->ammount){
+			item->ammount = 0;
+			item->type = ITEM_VOID;
+			return;
+		}
 	}
 	item->ammount += ammount;
 }

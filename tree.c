@@ -161,65 +161,9 @@ void removeSubVoxel(uint32_t node_index){
 		return;
 	}
 	if(material_array[node->type].flags & MAT_POWER)
-		removePowerGrid(node_index);
+		powerGridRemove(node_index);
 	dynamicArrayRemove(&block_array,node->index);
 	dynamicArrayRemove(&node_root,node_index);
-}
-
-void removeVoxel(uint32_t node_ptr){
-	node_t* node = dynamicArrayGet(node_root,node_ptr);
-	node_t* parent = dynamicArrayGet(node_root,node->parent);
-	if(node->type == BLOCK_PARENT){
-		node->index = dynamicArrayTop(air_array);
-		node->type = BLOCK_AIR;
-		air_t air;
-		air.entity = -1;
-		air.o2 = 0.3f;
-		dynamicArrayAdd(&air_array,&air);
-		bool exit = false;
-		for(int i = 0;i < 8;i++){
-			node_t* child = dynamicArrayGet(node_root,parent->child_s[i]);
-			if(child->type == BLOCK_AIR)
-				continue;
-			exit = true;
-		}
-		if(!exit){
-			removeVoxel(node->parent);
-			return;
-		}
-		for(int i = 0;i < 8;i++){
-			removeSubVoxel(node->child_s[i]);
-			node->child_s[i] = 0;
-		}
-		return;
-	}
-	block_t* block = dynamicArrayGet(block_array,node->index);
-	if(material_array[node->type].flags & MAT_POWER)
-		removePowerGrid(node_ptr);
-	for(int i = 0;i < 6;i++){
-		if(!block->luminance[i])
-			continue;
-		tFree(block->luminance[i]);
-	}
-	node->index = dynamicArrayTop(air_array);
-	node->type = BLOCK_AIR;
-	air_t air;
-	air.entity = -1;
-	air.o2 = 0.3f;
-	air.luminance = VEC3_ZERO;
-	dynamicArrayAdd(&air_array,&air);
-	if(!parent->depth)
-		return;
-	bool exit = false;
-	for(int i = 0;i < 8;i++){
-		node_t* child = dynamicArrayGet(node_root,parent->child_s[i]);
-		if(child->type == BLOCK_AIR)
-			continue;
-		exit = true;
-	}
-	if(exit)
-		return;
-	removeVoxel(node->parent);
 }
 
 #include <stdio.h>
@@ -271,7 +215,10 @@ void setVoxel(uint32_t x,uint32_t y,uint32_t z,int depth,uint32_t material,float
 				node_new.child_s[k] = 0;
 			air_t air;
 			air.entity = -1;
-			air.o2 = 0.3f;
+			if(TRND1 < 0.05f)
+				air.o2 = 0.0f;
+			else
+				air.o2 = 0.0f;
 			air.node = node_root.size;
 			air.luminance = VEC3_ZERO;
 			node_new.index = dynamicArrayTop(air_array);
@@ -319,12 +266,30 @@ void setVoxel(uint32_t x,uint32_t y,uint32_t z,int depth,uint32_t material,float
 					node->child_s[j] = 0;
 				}
 			}
-			if(node->type == BLOCK_AIR)
+			else if(node->type == BLOCK_AIR)
 				dynamicArrayRemove(&air_array,node->index);
+			else{
+				dynamicArrayRemove(&block_array,node->index);
+				if(material_array[node->type].flags & MAT_POWER)
+					powerGridRemove(node_index);
+			}
+			
+			if(material == BLOCK_AIR){
+				node->index = dynamicArrayTop(air_array);
+				node->type = BLOCK_AIR;
+				air_t air;
+				air.entity = -1;
+				air.o2 = 0.3f;
+				air.luminance = VEC3_ZERO;
+				dynamicArrayAdd(&air_array,&air);
+				return;
+			}
 			block_t block;
-			block.inventory[0] = (item_t){0,0};
-			block.inventory[1] = (item_t){0,0};
-			block.inventory[2] = (item_t){0,0};
+			block.recipy_select = -1;
+			block.craft_progress = 0.0f;
+			block.inventory[0] = (item_t){.ammount = 0,.type = ITEM_VOID};
+			block.inventory[1] = (item_t){.ammount = 0,.type = ITEM_VOID};
+			block.inventory[2] = (item_t){.ammount = 0,.type = ITEM_VOID};
 			if(material_array[material].flags & MAT_LIQUID){
 				block.ammount = ammount;
 				block.disturbance = 0.005f;
@@ -348,12 +313,13 @@ void setVoxel(uint32_t x,uint32_t y,uint32_t z,int depth,uint32_t material,float
 				changeNeighbour(node,5);
 			}
 			if(material_array[material].flags & MAT_POWER)
-				applyPowerGrid(node_index);
+				powerGridApply(node_index);
 			return;
 		}
 		if(!node->depth)
 			return;
 		node = parent;
+		node_index = parent_ptr;
 	}
 }
 

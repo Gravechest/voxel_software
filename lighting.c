@@ -408,7 +408,15 @@ void updateLightMapSide(node_t node,vec3_t* lightmap,material_t material,uint32_
 				while(main_thread_status == 2)
 					Sleep(1);
 			}
-			vec3mulvec3(&lightmap[lightmap_location],material.luminance);
+			if(node.type == BLOCK_SWITCH){
+				block_t* block = dynamicArrayGet(block_array,node.index);
+				if(block->on)
+					vec3mulvec3(&lightmap[lightmap_location],material.luminance_secundair);
+				else
+					vec3mulvec3(&lightmap[lightmap_location],material.luminance);
+			}
+			else
+				vec3mulvec3(&lightmap[lightmap_location],material.luminance);
 			vec3_t post = lightmap[lightmap_location];
 		}
 	}

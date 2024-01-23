@@ -197,6 +197,13 @@ void addSubSquare(vec3_t block_pos,ivec3 axis,node_t node,float block_size,int s
 			if(material.flags & MAT_LUMINANT)
 				lighting_grid[location] = material.luminance;
 			/*
+			else if(material.flags & MAT_POWER && block->on){
+				lighting_grid[location].r = 0.0f;
+				lighting_grid[location].g = 1.0f;
+				lighting_grid[location].b = 0.0f;
+			}
+			*/
+			/*
 			else if(material.flags & MAT_POWER){
 				lighting_grid[location].r = tFract((tHash(block->power_grid[0]) & 255) * 0.1f);
 				lighting_grid[location].g = tFract((tHash(block->power_grid[0] + 124) & 255) * 0.1f);
@@ -274,19 +281,22 @@ void addSubSquare(vec3_t block_pos,ivec3 axis,node_t node,float block_size,int s
 	int item = player_gamemode == GAMEMODE_SURVIVAL ? inventory_slot[INVENTORY_PASSIVE].type : block_type;
 	if(model_mode == 0 && item != ITEM_VOID){
 		if(material_array[item].flags & MAT_LUMINANT){
-			vec3_t luminance = material_array[item].luminance;
+			vec3_t luminance = vec3mulvec3R(material_array[item].luminance,material.luminance);
 			static float torch_flickering = 1.0f;
 			if(item == BLOCK_TORCH){
 				vec3mul(&luminance,torch_flickering);
-				torch_flickering += TRND1 * 0.005f;
-				torch_flickering *= 0.998f;
+				torch_flickering += TRND1 * 0.02f;
+				torch_flickering *= 0.992f;
 			}
 			for(int i = 0;i < square_size + 1;i++){
 				for(int j = 0;j < square_size + 1;j++){
 					uint32_t location = i * (square_size + 1) + j;
 					vec3_t pos = point_grid[location];
-					float distance = 1.0f / vec3distance(pos,camera.pos);
-					float strength = distance * -vec3dotR(vec3subvec3R(pos,camera.pos),normal_table[side]);
+					float distance = vec3distance(pos,camera.pos);
+					float inverse = 1.0f / (distance * distance);
+					vec3_t angle = vec3subvec3R(pos,camera.pos);
+					vec3normalize(&angle);
+					float strength = inverse * -vec3dotR(angle,normal_table[side]);
 					vec3addvec3(&lighting_grid[location],vec3mulR(luminance,strength));
 				}
 			}
@@ -429,8 +439,8 @@ void gatherEntityTriangles(entity_t* entity,air_t* air){
 	if(!point.z)
 		return;
 	vec2_t size = vec2mulR((vec2_t){entity->size,entity->size * RD_RATIO},1.0f / point.z);
-	point.x = point.x / WND_RESOLUTION.x * 2.0f - 1.0f;
-	point.y = point.y / WND_RESOLUTION.y * 2.0f - 1.0f;
+	point.x = point.x / window_size.x * 2.0f - 1.0f;
+	point.y = point.y / window_size.y * 2.0f - 1.0f;
 	vec3_t screen_point[4];
 	screen_point[0] = (vec3_t){point.y - size.y,point.x - size.x,1.0f};
 	screen_point[1] = (vec3_t){point.y + size.y,point.x - size.x,1.0f};
@@ -459,9 +469,9 @@ void gatherEntityTriangles(entity_t* entity,air_t* air){
 void setViewPlanes(){
 	vec3_t corner_angle[4] = {
 		getRayAngleCamera(0,0),
-		getRayAngleCamera(0,WND_RESOLUTION.y),
-		getRayAngleCamera(WND_RESOLUTION.x,0),
-		getRayAngleCamera(WND_RESOLUTION.x,WND_RESOLUTION.y)
+		getRayAngleCamera(0,window_size.y),
+		getRayAngleCamera(window_size.x,0),
+		getRayAngleCamera(window_size.x,window_size.y)
 	};
 	view_plane[0].normal = vec3cross(corner_angle[0],corner_angle[1]);
 	view_plane[1].normal = vec3negR(vec3cross(corner_angle[0],corner_angle[2]));
@@ -698,9 +708,9 @@ void sceneGatherTriangles(uint32_t node_ptr){
 
 	float max_distance = 0.0f;
 	float min_distance = 999999.0f;
-	float min_x = WND_RESOLUTION.x;
+	float min_x = window_size.x;
 	float max_x = 0;
-	float min_y = WND_RESOLUTION.y;
+	float min_y = window_size.y;
 	float max_y = 0;
 
 	vec3_t screen_point[8];

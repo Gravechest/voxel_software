@@ -10,6 +10,7 @@ typedef struct{
 }animationframe_t;
 
 #define ANIMATION_INACTIVE 0
+#define ANIMATION_ACTIVE 1
 
 enum{
 	ANIMATION_TRANSITION_LINEAR,

@@ -20,6 +20,16 @@ typedef struct{
 
 key_t key;
 
+#define PLAYER_OFFSET -1.0f
+#define PLAYER_SIZE (vec3_t){0.2f,0.2f,1.8f}
+#define AUTO_JUMP 1
+
+vec3_t getPlayerHitboxPos(){
+	vec3_t hitbox = vec3subvec3R(camera.pos,vec3mulR(PLAYER_SIZE,0.5f));
+	hitbox.z += PLAYER_OFFSET;
+	return hitbox;
+}
+
 void bunnyhop(){
 	static float the_same = 1.0f;
 	static bool direction = false;
@@ -29,8 +39,6 @@ void bunnyhop(){
 		the_same = 1.0f;
 		direction ^= true;
 	}
-	if(insideBlock(vec3subvec3R(camera.pos,(vec3_t){0.0f,0.0f,1.8f})))
-		return;
 	bool key_a = GetKeyState('A') & 0x80;
 	bool key_d = GetKeyState('D') & 0x80;
 	if(physic_mouse_x < 0.0f && key_a && !key_d){
@@ -45,12 +53,6 @@ void bunnyhop(){
 	}
 	physic_mouse_x = 0.0f;
 }
-
-#define PLAYER_THICKNESS 0.2f
-#define PLAYER_HEIGHT 1.8f
-
-#define PLAYER_OFFSET -1.0f
-#define PLAYER_SIZE (vec3_t){0.2f,0.2f,1.8f}
 
 bool boxCubeIntersect(vec3_t box_pos,vec3_t box_size,vec3_t cube_pos,float cube_size){
 	vec3_t box_max = vec3addvec3R(box_pos,box_size);
@@ -84,8 +86,7 @@ void walkPhysics(uint32_t tick_ammount){
 		bool is_stair_x = true,is_stair_y = true;
 		float stair_x = 0.0f,stair_y = 0.0f;
 		bool down_z = camera.vel.z < 0.0f;
-		vec3_t hitbox = vec3subvec3R(camera.pos,vec3mulR(PLAYER_SIZE,0.5f));
-		hitbox.z += PLAYER_OFFSET;
+		vec3_t hitbox = getPlayerHitboxPos();
 		hit[VEC3_X] = boxTreeCollision(vec3addvec3R(hitbox,(vec3_t){camera.vel.x,0.0f,0.0f}),PLAYER_SIZE,0);
 		hit[VEC3_Y] = boxTreeCollision(vec3addvec3R(hitbox,(vec3_t){0.0f,camera.vel.y,0.0f}),PLAYER_SIZE,0);
 		hit[VEC3_Z] = boxTreeCollision(vec3addvec3R(hitbox,(vec3_t){0.0f,0.0f,camera.vel.z}),PLAYER_SIZE,0);
@@ -125,10 +126,16 @@ void walkPhysics(uint32_t tick_ammount){
 			camera.vel.z = 0.0f;
 			if(down_z){
 				if(!in_menu && !block_menu_block){
+					static bool pressed;
 					if(GetKeyState(VK_SPACE) & 0x80){
-						playSound(SOUND_JUMP,vec3addvec3R(camera.pos,(vec3_t){0.01f,0.01f,-1.55f}));
-						camera.vel.z += MV_JUMPHEIGHT;
+						if(pressed || AUTO_JUMP){
+							playSound(SOUND_JUMP,vec3addvec3R(camera.pos,(vec3_t){0.01f,0.01f,-1.55f}));
+							camera.vel.z += MV_JUMPHEIGHT;
+							pressed = false;
+						}
 					}
+					else
+						pressed = true;
 				}
 				static float step_sound_cooldown;
 				step_sound_cooldown += tAbsf(camera.vel.y) + tAbsf(camera.vel.x);
