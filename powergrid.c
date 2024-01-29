@@ -1,6 +1,7 @@
 #include "powergrid.h"
 #include "memory.h"
 #include "tree.h"
+#include "tmath.h"
 
 DYNAMIC_ARRAY(power_grid_array,power_grid_t);
 
@@ -60,13 +61,15 @@ void powerGridFloodFill(uint32_t base_ptr,uint16_t power_grid_id){
 			block_t* neighbour_block = dynamicArrayGet(block_array,neighbour_node->index);
 			if(neighbour_block->power_grid[0] == GRID_DISCONNECTED)
 				continue;
+			if(neighbour_block->power_grid[0] == power_grid_id)
+				continue;
 			grid_index = &block->power_grid[1];
 			break;
 		}
 	}
-	if(block->power_grid[0] != GRID_DISCONNECTED && block->power_grid[0] != GRID_TOGGLE)
-		powerGridRemoveElement(block->power_grid[0],base_ptr);
-	block->power_grid[0] = power_grid_id;
+	if(*grid_index != GRID_DISCONNECTED && *grid_index != GRID_TOGGLE)
+		powerGridRemoveElement(*grid_index,base_ptr);
+	*grid_index = power_grid_id;
 	if(power_grid_id == GRID_DISCONNECTED || power_grid_id == GRID_TOGGLE)
 		return;
 	power_grid_t* grid = dynamicArrayGet(power_grid_array,power_grid_id);
@@ -105,7 +108,7 @@ int powerGridCountFloodFill(uint32_t base_ptr){
 			if(neighbour_block->power_grid[0] == GRID_TOGGLE)
 				continue;
 			if(block->power_grid[1] != GRID_DISCONNECTED)
-				powerGridRemoveElement(block->power_grid[0],base_ptr);
+				powerGridRemoveElement(block->power_grid[1],base_ptr);
 			block->power_grid[1] = GRID_TOGGLE;
 			return 1;
 		}
@@ -180,6 +183,32 @@ void powerGridApply(uint32_t base_ptr){
 	powerGridRefresh(base_ptr);
 }
 
+uint32_t minerTargetGet(uint32_t node_index){
+	node_t* node = dynamicArrayGet(node_root,node_index);
+	if(node->type == BLOCK_PARENT){
+		if(node->depth == DEPTH_MAX)
+			return 0;
+		for(int i = 0;i < 8;i++){
+			uint32_t result = minerTargetGet(node->child_s[i]);
+			if(result)
+				return result;
+		}
+	}
+	if(node->type == BLOCK_AIR)
+		return 0;
+	return node_index;
+}
+
+void minerTargetMine(uint32_t node_index){
+	node_t* node = dynamicArrayGet(node_root,node_index);
+	ivec3 pos = node->pos;
+	int material_index = node->type;
+	setVoxelSolid(pos.x,pos.y,pos.z,DEPTH_MAX,BLOCK_AIR,0);
+	addSubVoxel(pos.x << 1,pos.y << 1,pos.z << 1,0,0,0,DEPTH_MAX - node->depth,DEPTH_MAX,material_index);
+}
+
+#define POWER_NO_NEED -1.0f
+
 void powerGridTick(){
 	for(int i = 0;i < power_grid_array.size;i++){
 		power_grid_t* grid = dynamicArrayGet(power_grid_array,i);
@@ -193,14 +222,14 @@ void powerGridTick(){
 			node_t* node = dynamicArrayGet(node_root,*index);
 			block_t* block = dynamicArrayGet(block_array,node->index);
 			if(node->type == BLOCK_GENERATOR){
-				if(block->burn_progress > 0.0f){
+				if(block->progress > 0.0f){
 					grid->supply += 1.0f;
 					grid->suppliers++;
 				}
 				else{
 					if(block->inventory[0].type == BLOCK_COAL){
 						itemChange(&block->inventory[0],-1);
-						block->burn_progress = 1.0f;
+						block->progress = 1.0f;
 						grid->supply += 1.0f;
 						grid->suppliers++;
 					}
@@ -210,12 +239,24 @@ void powerGridTick(){
 				block->power = 0.0f;
 				grid->demand++;
 			}
+			if(node->type == BLOCK_MINER){
+				if(block->progress > 0.0f)
+					grid->demand++;
+				else{
+					ivec3 pos = node->pos;
+					pos.a[block->orientation >> 1] += (block->orientation & 1) * 2 - 1;
+					block->target = minerTargetGet(getNode(pos.x,pos.y,pos.z,node->depth));
+					if(block->target)
+						grid->demand++;
+					else
+						block->power = POWER_NO_NEED;
+				}
+			}
 		}
 	}
 	for(int j = 0;j < 8;j++){
 		for(int i = 0;i < power_grid_array.size;i++){
 			power_grid_t* grid = dynamicArrayGet(power_grid_array,i);
-			float power = grid->supply / grid->demand;
 			for(int j = 0;j < grid->component.size;j++){
 				uint32_t* index = dynamicArrayGet(grid->component,j);
 				if(!*index)
@@ -233,20 +274,28 @@ void powerGridTick(){
 					float av_suply;
 					float av_suply_2;
 					float acc = other_grid->supply + grid->supply;
-					if(!grid->supply || !other_grid->demand){
+					grid->used_supply += grid->supply;
+					other_grid->used_supply += other_grid->supply;
+					if(!grid->demand || !other_grid->demand){
 						other_grid->supply = acc * 0.5f;
 						grid->supply = acc * 0.5f;
+						other_grid->used_supply -= acc * 0.5f;
+						grid->used_supply -= acc * 0.5f;
 					}
 					else{
 						int acc_demand = grid->demand + other_grid->demand;
 						other_grid->supply = acc / (other_grid->demand / acc_demand);
 						grid->supply = acc / (grid->demand / acc_demand);
+						other_grid->used_supply -= acc / (other_grid->demand / acc_demand);
+						grid->used_supply -= acc / (grid->demand / acc_demand);
 					}
 				}
 			}
 		}
 		for(int i = 0;i < power_grid_array.size;i++){
 			power_grid_t* grid = dynamicArrayGet(power_grid_array,i);
+			if(!grid->demand)
+				continue;
 			float power = grid->supply / grid->demand;
 			for(int j = 0;j < grid->component.size;j++){
 				uint32_t* index = dynamicArrayGet(grid->component,j);
@@ -254,16 +303,24 @@ void powerGridTick(){
 					continue;
 				node_t* node = dynamicArrayGet(node_root,*index);
 				block_t* block = dynamicArrayGet(block_array,node->index);
-				if(node->type == BLOCK_LAMP){
-					block->power += power;
-					grid->supply -= power;
-					grid->used_supply += power;
+				material_t material = material_array[node->type];
+				if(material.flags & MAT_POWER_CONSUMER){
+					if(block->power == POWER_NO_NEED)
+						continue;
+					float power_spend = tMinf(power,material.power_need - block->power / material.power_convert);
+					if(power_spend <= 0.0f)
+						continue;
+					block->power += power_spend * material.power_convert;
+					grid->supply -= power_spend;
+					grid->used_supply += power_spend;
 				}
 			}
 		}
 	}
 	for(int i = 0;i < power_grid_array.size;i++){
 		power_grid_t* grid = dynamicArrayGet(power_grid_array,i);
+		if(!grid->suppliers)
+			continue;
 		for(int j = 0;j < grid->component.size;j++){
 			uint32_t* index = dynamicArrayGet(grid->component,j);
 			if(!*index)
@@ -271,10 +328,20 @@ void powerGridTick(){
 			node_t* node = dynamicArrayGet(node_root,*index);
 			block_t* block = dynamicArrayGet(block_array,node->index);
 			if(node->type == BLOCK_GENERATOR){
-				if(block->burn_progress){
-					block->burn_progress -= 1.0f * (grid->used_supply / grid->suppliers) * BURN_EFFICIENCY_COAL;
+				if(block->progress)
+					block->progress -= 1.0f * (grid->used_supply / grid->suppliers) * BURN_EFFICIENCY_COAL;
+			}
+			if(node->type == BLOCK_MINER){
+				block->progress += block->power;
+				if(block->progress > 1.0f){
+					node_t* node = dynamicArrayGet(node_root,block->target);
+					block->inventory[0].type = node->type;
+					block->inventory[0].ammount++;
+					minerTargetMine(block->target);
+					block->progress = 0.0f;
 				}
 			}
 		}
+		grid->supply = 0.0f;
 	}
 }

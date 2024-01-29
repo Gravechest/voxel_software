@@ -22,34 +22,6 @@ unsigned int VBO;
 unsigned int texture2;
 unsigned int VBO_plain_texture;
 unsigned int shaderprogram;
-unsigned int shader_program_ui;
-unsigned int shader_program_plain_texture;
-
-char *plain_texture_vert_source = ""
-"#version 460 core\n"
-
-"layout (location = 0) in vec2 verticles;"
-"layout (location = 1) in vec2 textcoords;"
-
-"out vec2 TextCoords;"
-
-"void main(){"
-	"TextCoords = textcoords;"
-	"gl_Position = vec4(verticles,0.0,1.0);"
-"}";
-
-char *plain_texture_frag_source = ""
-"#version 460 core\n"
-
-"out vec4 FragColor;"
-
-"in vec2 TextCoords;"
-
-"uniform sampler2D ourTexture;"
-
-"void main(){"
-	"FragColor = texture(ourTexture,crd);"
-"}";
 
 char *VERTsource = ""
 "#version 460 core\n"
@@ -93,31 +65,6 @@ char *FRAGsource = ""
 	"}"
 	"FragColor *= texture_color;"
 	"FragColor.rgb = mix(FragColor.rgb,Fog_color,1.0f - Distance);"
-"}";
-
-char *VERTsourceUI = ""
-"#version 460 core\n"
-
-"layout (location = 0) in vec2 verticles;"
-"layout (location = 1) in vec2 textcoords;"
-"layout (location = 2) in vec3 lighting;"
-
-"out vec3 Lighting;"
-
-"void main(){"
-	"Lighting = lighting;"
-	"gl_Position = vec4(verticles,0.0,1.0);"
-"}";
-
-char *FRAGsourceUI = ""
-"#version 460 core\n"
-
-"out vec4 FragColor;"
-
-"in vec3 Lighting;"
-
-"void main(){"
-	"FragColor = vec4(Lighting,1.0f);"
 "}";
 
 #define RD_VSYNC true
@@ -167,11 +114,8 @@ void initGL(void* context){
 	glVertexAttribPointer(4,3,GL_FLOAT,0,12 * sizeof(float),(void*)(9 * sizeof(float)));
 
 	context_is_gl = true;
-	
-	
-	shader_program_ui = glCreateProgram();
+
 	shaderprogram   = glCreateProgram();
-	shader_program_plain_texture = glCreateProgram();
 
 	unsigned int vertexshader    = glCreateShader(GL_VERTEX_SHADER);
 	unsigned int fragmentshader  = glCreateShader(GL_FRAGMENT_SHADER);
@@ -185,34 +129,6 @@ void initGL(void* context){
 	glAttachShader(shaderprogram,fragmentshader);
 	glLinkProgram(shaderprogram);
 	glUseProgram(shaderprogram);
-
-	unsigned int vertexshader_ui   = glCreateShader(GL_VERTEX_SHADER);
-	unsigned int fragmentshader_ui = glCreateShader(GL_FRAGMENT_SHADER);
-
-	glShaderSource(vertexshader_ui,1,(const char**)&VERTsourceUI,0);
-	glShaderSource(fragmentshader_ui,1,(const char**)&FRAGsourceUI,0);
-				
-	glCompileShader(vertexshader_ui);
-	glCompileShader(fragmentshader_ui);
-		
-	glAttachShader(shader_program_ui,vertexshader_ui);
-	glAttachShader(shader_program_ui,fragmentshader_ui);
-	
-	glLinkProgram(shader_program_ui);
-
-	unsigned int vertexshader_plain_texture   = glCreateShader(GL_VERTEX_SHADER);
-	unsigned int fragmentshader_plain_texture = glCreateShader(GL_FRAGMENT_SHADER);
-
-	glShaderSource(vertexshader_plain_texture,1,(const char**)&plain_texture_vert_source,0);
-	glShaderSource(fragmentshader_plain_texture,1,(const char**)&plain_texture_frag_source,0);
-				
-	glCompileShader(vertexshader_plain_texture);
-	glCompileShader(fragmentshader_plain_texture);
-		
-	glAttachShader(shader_program_plain_texture,vertexshader_plain_texture);
-	glAttachShader(shader_program_plain_texture,fragmentshader_plain_texture);
-	
-	glLinkProgram(shader_program_plain_texture);
 
 	glEnable(GL_DEPTH_TEST);
 	

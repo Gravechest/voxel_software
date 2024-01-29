@@ -69,7 +69,7 @@ float boxTreeCollision(vec3_t pos,vec3_t size,uint32_t node_ptr){
 	vec3_t block_pos = {node->pos.x,node->pos.y,node->pos.z};
 	vec3mul(&block_pos,block_size);
 	bool collision = boxCubeIntersect(pos,size,block_pos,block_size);
-	if(!collision || node->type == BLOCK_AIR)
+	if(!collision || node->type == BLOCK_AIR || node->type == BLOCK_RAIL)
 		return -1.0f;
 	if(node->type != BLOCK_PARENT)
 		return block_pos.z + block_size - pos.z;
@@ -179,7 +179,8 @@ void walkPhysics(uint32_t tick_ammount){
 		camera.vel.z -= MV_GRAVITY;
 	}
 }
-
+#include "player.h"
+#include "entity.h"
 void physics(uint32_t tick_ammount){
 	key.w = GetKeyState('W') & 0x80;
 	key.s = GetKeyState('S') & 0x80;
@@ -188,7 +189,16 @@ void physics(uint32_t tick_ammount){
 	camera.tri = (vec4){cosf(camera.dir.x),sinf(camera.dir.x),cosf(camera.dir.y),sinf(camera.dir.y)};
 	global_tick++;
 	if(!setting_fly){
-		walkPhysics(tick_ammount);
+		if(player.train == -1)
+			walkPhysics(tick_ammount);
+		else{
+			entity_t* train = &entity_array[player.train];
+			if(key.w)
+				train->train_velocity += 0.01f;
+			if(key.s)
+				train->train_velocity -= 0.01f;
+			camera.pos = train->pos;
+		}
 		return;
 	}
 	float mod = (GetKeyState(VK_LCONTROL) & 0x80) ? 3.0f : 1.0f;

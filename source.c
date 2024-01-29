@@ -18,13 +18,14 @@
 #include "entity.h"
 #include "player.h"
 #include "powergrid.h"
-#include "dynamic_array.h"
 #include "gui.h"
 #include "cellular_automata.h"
 
 #include <gl/GL.h>
 
 #pragma comment(lib,"opengl32")
+
+DYNAMIC_ARRAY(furnace_array,uint32_t);
 
 vec3_t normal_table[] = {
 	{-1.0f,0.0f,0.0f},
@@ -128,6 +129,20 @@ void decreaseCraftAmmount(){
 }
 
 craftrecipy_t craft_recipy[] = {
+	[RECIPY_IRON] = {
+		.name = "furnace",
+		.result = BLOCK_IRON,
+		.cost[0] = {.type = BLOCK_IRON_ORE,.ammount = 16},
+		.cost[1] = {.type = BLOCK_COAL,.ammount = 1},
+		.duration = 1.0f,
+	},
+	[RECIPY_COPPER] = {
+		.name = "furnace",
+		.result = BLOCK_COPPER,
+		.cost[0] = {.type = BLOCK_COPPER_ORE,.ammount = 16},
+		.cost[1] = {.type = BLOCK_COAL,.ammount = 1},
+		.duration = 1.0f,
+	},
 	[RECIPY_FURNACE] = {
 		.name = "furnace",
 		.result = BLOCK_FURNACE,
@@ -172,9 +187,50 @@ craftrecipy_t craft_recipy[] = {
 	},
 };
 
-int block_type = BLOCK_GENERATOR;
+int block_type = BLOCK_RAIL;
 
 material_t material_array[] = {
+	[BLOCK_TRAIN] = {
+		.luminance = {1.0f,0.4f,0.2f},
+		.texture_pos = TEXTURE_POS_CONVERT(0,0),
+		.texture_size = TEXTURE_POS_CONVERT(1,1),
+	},
+	[BLOCK_RAIL] = {
+		.luminance = {1.0f,1.0f,1.0f},
+		.texture_pos = TEXTURE_POS_CONVERT(0,0),
+		.texture_size = TEXTURE_POS_CONVERT(1,1),
+	},
+	[BLOCK_COPPER] = {
+		.luminance = {1.0f,1.0f,1.0f},
+		.texture_pos = TEXTURE_POS_CONVERT(128,2048 - 128),
+		.texture_size = TEXTURE_POS_CONVERT(128,128),
+	},
+	[BLOCK_IRON] = {
+		.luminance = {1.0f,1.0f,1.0f},
+		.texture_pos = TEXTURE_POS_CONVERT(256 + 128,2048 - 128),
+		.texture_size = TEXTURE_POS_CONVERT(128,128),
+	},
+	[BLOCK_COPPER_ORE] = {
+		.luminance = {1.0f,1.0f,1.0f},
+		.texture_pos = TEXTURE_POS_CONVERT(128,2048 - 128),
+		.texture_size = TEXTURE_POS_CONVERT(128,128),
+		.hardness = 1024.0f
+	},
+	[BLOCK_IRON_ORE] = {
+		.luminance = {1.0f,1.0f,1.0f},
+		.texture_pos = TEXTURE_POS_CONVERT(256 + 128,2048 - 128),
+		.texture_size = TEXTURE_POS_CONVERT(128,128),
+		.hardness = 1024.0f
+	},
+	[BLOCK_MINER] = {
+		.luminance = {0.5f,0.3f,0.5f},
+		.texture_pos = {0.0f,0.0f},
+		.texture_size = {0.01f,0.01f},
+		.flags = MAT_POWER | MAT_MENU | MAT_POWER_CONSUMER,
+		.menu_index = GUI_MINER,
+		.power_convert = 0.01f,
+		.power_need = 0.2f,
+	},
 	[BLOCK_FURNACE] = {
 		.luminance = {0.5f,0.5f,0.5f},
 		.texture_pos = {0.0f,0.0f},
@@ -223,9 +279,9 @@ material_t material_array[] = {
 	},
 	[BLOCK_COAL] = {
 		.luminance = {0.1f,0.1f,0.1f},
-		.texture_pos = {0.0f,0.0f},
-		.texture_size = {0.01f,0.01f},
-		.hardness = 64.0f
+		.texture_pos = TEXTURE_POS_CONVERT(256,2048 - 128),
+		.texture_size = TEXTURE_POS_CONVERT(128,128),
+		.hardness = 256.0f
 	},
 	[BLOCK_EMIT_RED] = {
 		.luminance = {9.0f,3.0f,3.0f},
@@ -287,11 +343,12 @@ material_t material_array[] = {
 		.luminance = {0.9f,0.9f,0.3f},
 		.texture_pos = {0.0f,0.0f},
 		.texture_size = {0.01f,0.01f},
-		.flags = MAT_POWER
+		.flags = MAT_POWER | MAT_POWER_CONSUMER,
+		.power_convert = 200.0f,
+		.power_need = 0.02f,
 	},
 	[BLOCK_SWITCH] = {
-		.luminance = {0.9f,0.3f,0.3f},
-		.luminance_secundair = {0.3f,0.9f,0.3f},
+		.luminance = {0.5f,0.5f,0.5f},
 		.texture_pos = {0.0f,0.0f},
 		.texture_size = {0.01f,0.01f},
 		.light_emit = 5.0f,
@@ -299,8 +356,8 @@ material_t material_array[] = {
 	},
 	[BLOCK_STONE] = {
 		.luminance = {1.0f,1.0f,1.0f},
-		.texture_pos = {0.0f,1.0f / 16.0f * 15.0f},
-		.texture_size = {1.0f / 16.0f,1.0f / 16.0f},
+		.texture_pos = TEXTURE_POS_CONVERT(0,2048 - 128),
+		.texture_size = TEXTURE_POS_CONVERT(128,128),
 		.hardness = 1.0f,
 	},
 	[BLOCK_SKIN] = {
@@ -386,7 +443,7 @@ texture_t loadBMP(char* name){
 	offset = 0;
 
 	//generate mipmaps
-	for(int size = texture.size >> 1;size;){
+	for(int size = texture.size >> 1;size;){	
 		for(int x = 0;x < size;x++){
 			for(int y = 0;y < size;y++){
 				ivec3 color = {0,0,0};
@@ -439,6 +496,21 @@ vec3_t getLookAngle(vec2_t angle){
 	return ang;
 }
 
+vec3_t getRayAngle(vec2_t direction,vec2_t pos){
+	vec4 tri = {cosf(direction.x),sinf(direction.x),cosf(direction.y),sinf(direction.y)};
+	vec3_t ray_ang;
+	float pixelOffsetY = pos.x;
+	float pixelOffsetX = pos.y;
+	ray_ang.x = tri.x * tri.z;
+	ray_ang.y = tri.y * tri.z;
+	ray_ang.x -= tri.x * tri.w * pixelOffsetY;
+	ray_ang.y -= tri.y * tri.w * pixelOffsetY;
+	ray_ang.x -= tri.y * pixelOffsetX;
+	ray_ang.y += tri.x * pixelOffsetX;
+	ray_ang.z = tri.w + tri.z * pixelOffsetY;
+	return ray_ang;
+}
+
 vec3_t getRayAngleCamera(uint32_t x,uint32_t y){
 	vec3_t ray_ang;
 	float pxY = (((float)x * 2.0f * (1.0f / window_size.x)) - 1.0f);
@@ -467,7 +539,7 @@ vec3_t getRayAnglePlane(vec3_t normal,float x,float y){
 		r = vec2rotR((vec2_t){normal.x,normal.y},M_PI * 0.5f);
 		v_x = (vec3_t){r.x,r.y,normal.z};
 	}
-	vec3_t v_y = vec3cross(normal,v_x);
+	vec3_t v_y = vec3cross(normal,v_x);	
 	vec3addvec3(&normal,vec3mulR(v_x,x));
 	vec3addvec3(&normal,vec3mulR(v_y,y));
 	return vec3normalizeR(normal);
@@ -506,9 +578,9 @@ vec3_t pointToScreenZ(vec3_t point){
 	
 	if(pos.x <= 0.0f)
 		return (vec3_t){0.0f,0.0f,0.0f};
-	
-	screen_point.x = FOV.x * pos.z / pos.x + window_size.x / 2.0f;
-	screen_point.y = FOV.y * pos.y / pos.x + window_size.y / 2.0f;
+
+	screen_point.x = (pos.z / pos.x * (FOV.x / window_size.x)) * window_size.x + window_size.x / 2.0f;
+	screen_point.y = (pos.y / pos.x * (FOV.y / window_size.y)) * window_size.y + window_size.y / 2.0f;
 	screen_point.z = pos.x;
 	return screen_point;
 }
@@ -543,7 +615,7 @@ plane_ray_t getPlane(vec3_t pos,vec3_t dir,uint32_t side,float block_size){
 float rayIntersectPlane(vec3_t pos,vec3_t dir,vec3_t plane){
 	return vec3dotR(pos,plane) / vec3dotR(dir,plane);
 }
-
+//TODO simplify
 void addSubVoxel(int vx,int vy,int vz,int x,int y,int z,int depth,int remove_depth,int block_id){
 	if(--depth == -1)
 		return;
@@ -561,7 +633,7 @@ void addSubVoxel(int vx,int vy,int vz,int x,int y,int z,int depth,int remove_dep
 			addSubVoxel(pos_x,pos_y,pos_z,x,y,z,depth,remove_depth,block_id);
 			continue;
 		}
-		setVoxelSolid(vx + lx,vy + ly,vz + lz,remove_depth - depth,block_id);
+		setVoxelSolid(vx + lx,vy + ly,vz + lz,remove_depth - depth,block_id,0);
 	}
 }
 
@@ -592,12 +664,12 @@ void holdStructureSet(hold_structure_t* hold,ivec3 pos,uint32_t depth){
 	}
 	if(hold->block_id == BLOCK_AIR)
 		return;
-	setVoxelSolid(pos.x,pos.y,pos.z,depth,hold->block_id);
+	setVoxelSolid(pos.x,pos.y,pos.z,depth,hold->block_id,0);
 }
 
 void rayRemoveVoxel(vec3_t ray_pos,vec3_t direction,int remove_depth){
 	traverse_init_t init = initTraverse(ray_pos);
-	node_hit_t result = treeRay(ray3Create(init.pos,direction),init.node,ray_pos);
+	node_hit_t result = treeRayFlags(ray3Create(init.pos,direction),init.node,ray_pos,TREE_RAY_PLACE);
 	if(!result.node)
 		return;
 	node_t node = *(node_t*)dynamicArrayGet(node_root,result.node);
@@ -607,7 +679,7 @@ void rayRemoveVoxel(vec3_t ray_pos,vec3_t direction,int remove_depth){
 	block_t* block = dynamicArrayGet(block_array,node.index);
 	uint32_t material = node.type;
 
-	setVoxelSolid(node.pos.x,node.pos.y,node.pos.z,node.depth,BLOCK_AIR);
+	setVoxelSolid(node.pos.x,node.pos.y,node.pos.z,node.depth,BLOCK_AIR,0);
 
 	float block_size = (float)MAP_SIZE / (1 << block_depth) * 2.0f;
 
@@ -669,7 +741,7 @@ enum{
 uint32_t block_menu_block;
 int in_menu;
 
-void playerAddBlock(node_t* node,int side,vec3_t dir){
+void playerAddBlock(node_t* node,int side,vec3_t dir,int orientation){
 	block_t* block = dynamicArrayGet(block_array,node->index);
 	ivec3 block_pos_i = node->pos;
 	uint32_t block_depth = node->depth;
@@ -716,15 +788,15 @@ void playerAddBlock(node_t* node,int side,vec3_t dir){
 			uint32_t cost = 1 << tMax((12 - edit_depth) * 3,0);
 			if(cost > inventory_slot[inventory_select].ammount)
 				return;
-			setVoxelSolid(block_pos.x,block_pos.y,block_pos.z,edit_depth,inventory_slot[inventory_select].type);
+			setVoxelSolid(block_pos.x,block_pos.y,block_pos.z,edit_depth,inventory_slot[inventory_select].type,orientation);
 			itemChange(&inventory_slot[inventory_select],-cost);
 			return;
 		}
 		if(material_array[block_type].flags & MAT_LIQUID){
-			setVoxel(block_pos.x,block_pos.y,block_pos.z,edit_depth,block_type,0.8f);
+			setVoxel(block_pos.x,block_pos.y,block_pos.z,edit_depth,block_type,0.8f,orientation);
 			return;
 		}
-		setVoxelSolid(block_pos.x,block_pos.y,block_pos.z,edit_depth,block_type);
+		setVoxelSolid(block_pos.x,block_pos.y,block_pos.z,edit_depth,block_type,orientation);
 		return;
 	}
 	holdStructureSet(hold_structure,(ivec3){block_pos.x,block_pos.y,block_pos.z},edit_depth);
@@ -744,28 +816,68 @@ float rayIntersectSphere(vec3_t ray_pos,vec3_t sphere_pos,vec3_t ray_dir,float r
 void clickLeft(){
 	vec3_t dir = getLookAngle(camera.dir);
 	traverse_init_t init = initTraverse(camera.pos);
-	node_hit_t result = treeRay(ray3Create(init.pos,dir),init.node,camera.pos);
+	node_hit_t result = treeRayFlags(ray3Create(init.pos,dir),init.node,camera.pos,TREE_RAY_PLACE);
 	if(!result.node)
 		return;
 	node_t* node = dynamicArrayGet(node_root,result.node);
+	block_t* block = dynamicArrayGet(block_array,node->index);
 	material_t material = material_array[node->type];
+	entity_hit_t hit = rayEntityIntersection(camera.pos,dir);
+	if(hit.entity != -1){
+		entity_t* entity = &entity_array[hit.entity];
+		if(entity->type == ENTITY_TRAIN){
+			camera.pos = entity->pos;
+			player.train = hit.entity;
+		}
+		return;
+	}
 	if(material.flags & MAT_MENU){
 		block_menu_block = result.node;
 		dynamic_array_t gui = gui_array[material.menu_index];
-		block_t* block = dynamicArrayGet(block_array,node->index);
 		for(int i = 0;i < gui.size;i++){
 			gui_t* element = dynamicArrayGet(gui,i);
 			if(element->type == GUI_ELEMENT_ITEM)
 				element->item = &block->inventory[element->value];
 			if(element->type == GUI_ELEMENT_PROGRESS)
-				element->progress = &block->craft_progress;
+				element->progress = &block->progress;
 		}
+		if(node->type != BLOCK_MINER){
+			if(result.side != VEC3_Z)
+				block->gui_side = result.side * 2 + (dir.a[result.side] > 0.0f); 
+		}
+		return;
+	}
+	if(node->type == BLOCK_RAIL && block_type == BLOCK_TRAIN){
+		entity_t* entity = getNewEntity();
+		air_t* air = dynamicArrayGet(air_array,node->index);
+		float offset = getBlockSize(node->depth) * 0.5f;
+		entity->pos = vec3addvec3R(getPosFromGridPos(node->pos,node->depth),(vec3_t){offset,offset,offset * 0.5f});
+		entity->train_orientation = air->orientation & 0b000011 ? 0 : 2;
+		entity->type = ENTITY_TRAIN;
+		entity->dir = VEC3_ZERO;
+		entity->texture_pos = (vec2_t)TEXTURE_POS_CONVERT(0,2048 - 128 - 32);
+		entity->texture_size = (vec2_t)TEXTURE_POS_CONVERT(32,32);
+		entity->size = offset * 0.5f;
+		entity->flags = 0;
+		entity->color = (vec3_t){1.0f,1.0f,1.0f};
 		return;
 	}
 	if(node->type == BLOCK_SWITCH){
 		block_t* block = dynamicArrayGet(block_array,node->index);
 		block->on ^= true;
+		if(result.side != VEC3_Z)
+			block->gui_side = result.side * 2 + (dir.a[result.side] > 0.0f);
 		return;
+	}
+	int orientation;
+	if(node->type == BLOCK_MINER){
+		orientation = result.side * 2 + (dir.a[result.side] > 0.0f);
+	}
+	else{
+		if(result.side != VEC3_Z)
+			orientation = result.side * 2 + (dir.a[result.side] > 0.0f);
+		else
+			orientation = 0;
 	}
 	if(player_gamemode == GAMEMODE_SURVIVAL){
 		if(inventory_slot[inventory_select].type == ITEM_VOID){
@@ -775,10 +887,10 @@ void clickLeft(){
 			playerAttack();
 			return;
 		}
-		playerAddBlock(node,result.side,dir);
+		playerAddBlock(node,result.side,dir,orientation);
 		return;
 	}
-	playerAddBlock(node,result.side,dir);
+	playerAddBlock(node,result.side,dir,orientation);
 }
 
 float block_break_progress;
@@ -835,7 +947,35 @@ void rotateModel(hold_structure_t* model,hold_structure_t* buffer,int rotate_dir
 	}
 }
 
+uint32_t tNoise(uint32_t seed){
+	seed += seed << 10;
+	seed ^= seed >> 6;
+	seed += seed << 3;
+	seed ^= seed >> 11;
+	seed += seed << 15;
+	return seed;
+}
+
 void createSurvivalWorld(){
+	/*
+	int depth = 7;
+	int m = 1 << depth;
+
+	for(int x = 0;x < m;x++){
+		for(int y = 0;y < m;y++){
+			for(int z = 0;z < m;z++){
+				int table[] = {1,2,3,5,8,13,21,34};
+				int value = 0;
+				for(int i = 0;i < 8;i++){
+					value += tNoise((x / table[i]) * m * m + (y / table[i]) * m + (z / table[i])) % 0x2f;
+				}
+				if(value > 180)
+					setVoxelSolid(x,y,z,depth,BLOCK_STONE,0);
+			}
+		}
+	}
+	*/
+	
 	int depth = 7;
 	int m = 1 << depth;
 
@@ -848,19 +988,31 @@ void createSurvivalWorld(){
 				if(x_condition && y_condition && z_condition){
 					continue;
 				}
-				int roll = TRND1 * 1000;
-				if(roll < 30){
-					setVoxelSolid(x,y,z,depth,BLOCK_COAL);
+				int roll = TRND1 * 2500;
+				roll -= 80;
+				if(roll < 0){
+					setVoxelSolid(x,y,z,depth,BLOCK_COAL,0);
 					continue;
 				}
-				setVoxelSolid(x,y,z,depth,BLOCK_STONE);
+				roll -= 20;
+				if(roll < 0){
+					setVoxelSolid(x,y,z,depth,BLOCK_COPPER_ORE,0);
+					continue;
+				}
+				roll -= 20;
+				if(roll < 0){
+					setVoxelSolid(x,y,z,depth,BLOCK_IRON_ORE,0);
+					continue;
+				}
+				setVoxelSolid(x,y,z,depth,BLOCK_STONE,0);
 			}
 		}
 	}
-	setVoxelSolid(m + 2,m + 2,m,depth + 1,BLOCK_SPAWNLIGHT);
-	setVoxelSolid(m + 2,m + 3,m,depth + 1,BLOCK_SPAWNLIGHT);
-	setVoxelSolid(m + 3,m + 2,m,depth + 1,BLOCK_SPAWNLIGHT);
-	setVoxelSolid(m + 3,m + 3,m,depth + 1,BLOCK_SPAWNLIGHT);
+	setVoxelSolid(m + 2,m + 2,m,depth + 1,BLOCK_SPAWNLIGHT,0);
+	setVoxelSolid(m + 2,m + 3,m,depth + 1,BLOCK_SPAWNLIGHT,0);
+	setVoxelSolid(m + 3,m + 2,m,depth + 1,BLOCK_SPAWNLIGHT,0);
+	setVoxelSolid(m + 3,m + 3,m,depth + 1,BLOCK_SPAWNLIGHT,0);
+	
 }
 
 void createFlatWorld(){
@@ -868,7 +1020,7 @@ void createFlatWorld(){
 	int m = 1 << depth;
 	for(int x = 0;x < m;x++){
 		for(int y = 0;y < m;y++){
-			setVoxelSolid(x,y,0,depth,BLOCK_STONE);
+			setVoxelSolid(x,y,0,depth,BLOCK_STONE,0);
 		}
 	}
 }
@@ -888,12 +1040,19 @@ void eraseWorld(){
 
 char console_buffer[CONSOLE_BUFFER_SIZE];
 int console_cursor;
-bool show_tree_iteration;
 float test_float;
-bool wireframe_mode;
-bool wireframe_mode_change;
 
-bool commandCompare(char* command,char* str){
+enum{
+	RENDER_MODE_NORMAL,
+	RENDER_MODE_WIREFRAME,
+	RENDER_MODE_MASK,
+	RENDER_MODE_TREE_ITERATION,
+};
+
+int render_mode;
+int render_mode_change;
+
+static bool commandCompare(char* command,char* str){
 	for(int i = 0;*command != ' ' && *command != '\0' && *str != '\0';command++,str++){
 		if(*command != *str)
 			return false;
@@ -925,10 +1084,14 @@ void executeCommand(){
 		SetWindowPos(window,0,window_offset.y,window_offset.x,window_size.y,window_size.x,0);
 		glViewport(0,0,window_size.y,window_size.x);
 	}
-	if(commandCompare(console_buffer,"WIREFRAME"))
-		wireframe_mode_change = true;
-	if(commandCompare(console_buffer,"TREE_ITERATION"))
-		show_tree_iteration ^= true;
+	if(commandCompare(console_buffer,"RD_WIREFRAME"))
+		render_mode_change = RENDER_MODE_WIREFRAME;
+	if(commandCompare(console_buffer,"RD_TREE_ITERATION"))
+		render_mode_change = RENDER_MODE_TREE_ITERATION;
+	if(commandCompare(console_buffer,"RD_MASK"))
+		render_mode_change = RENDER_MODE_MASK;
+	if(commandCompare(console_buffer,"RD_NORMAL"))
+		render_mode_change = RENDER_MODE_NORMAL;
 	if(commandCompare(console_buffer,"CREATE_FLAT")){
 		eraseWorld();
 		createFlatWorld();
@@ -944,9 +1107,9 @@ void executeCommand(){
 		player_gamemode ^= true;
 	}
 	if(commandCompare(console_buffer,"O2")){
-		node_t node = treeTraverse(camera.pos);
-		if(node.type == BLOCK_AIR)
-			((air_t*)dynamicArrayGet(air_array,node.index))->o2 += 0.1f;
+		node_t* node = dynamicArrayGet(node_root,treeTraverse(camera.pos));
+		if(node->type == BLOCK_AIR)
+			((air_t*)dynamicArrayGet(air_array,node->index))->o2 += 0.1f;
 	}
 	if(commandCompare(console_buffer,"QUIT"))
 		ExitProcess(0);
@@ -1122,6 +1285,8 @@ int proc(HWND hwnd,uint32_t msg,WPARAM wParam,LPARAM lParam){
 			}
 			if(material_array[block_type].fixed_size)
 				break;
+			if(player_gamemode == GAMEMODE_SURVIVAL && edit_depth == DEPTH_MAX)
+				break;
 			edit_depth++;
 			break;
 		case VK_SUBTRACT:
@@ -1131,6 +1296,8 @@ int proc(HWND hwnd,uint32_t msg,WPARAM wParam,LPARAM lParam){
 					break;
 			}
 			if(material_array[block_type].fixed_size)
+				break;
+			if(player_gamemode == GAMEMODE_SURVIVAL && edit_depth == 7)
 				break;
 			edit_depth--;
 			break;
@@ -1376,10 +1543,12 @@ void generateBlockOutline(){
 		triangle[triangle_c++] = (triangle_t){triang[table[i][2]],(vec2_t){0.0f,0.01f}, (vec3_t){fluctuate,fluctuate,fluctuate},1.0f};
 		triangle[triangle_c++] = (triangle_t){triang[table[i][3]],(vec2_t){0.01f,0.01f},(vec3_t){fluctuate,fluctuate,fluctuate},1.0f};
 	}
-	glPolygonMode(GL_FRONT_AND_BACK,GL_LINE);
+	if(render_mode != RENDER_MODE_WIREFRAME)
+		glPolygonMode(GL_FRONT_AND_BACK,GL_LINE);
 	glBufferData(GL_ARRAY_BUFFER,triangle_c * sizeof(triangle_t),triangle,GL_DYNAMIC_DRAW);
 	glDrawArrays(GL_TRIANGLES,0,triangle_c);
-	glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);
+	if(render_mode != RENDER_MODE_WIREFRAME)
+		glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);
 }
 
 void castVisibilityRays(){
@@ -1416,7 +1585,6 @@ void castVisibilityRays(){
 	counter %= 16 * 16;
 }
 
-int draw_mode;
 #define TREEITERATION_SQUARE_SIZE 16
 
 void collectTreeIteration(){
@@ -1425,6 +1593,16 @@ void collectTreeIteration(){
 		for(int y = 0;y < window_size.y;y += TREEITERATION_SQUARE_SIZE){
 			uint32_t c = traverseTreeItt(ray3CreateI(init.pos,getRayAngleCamera(x,y)),init.node);
 			guiRectangle((vec2_t){y * (2.0f / window_size.y) - 1.0f,x * (2.0f / window_size.x) - 1.0f},(vec2_t){(2.0f / window_size.y) * TREEITERATION_SQUARE_SIZE,(2.0f / window_size.x) * TREEITERATION_SQUARE_SIZE},(vec3_t){c * 0.02f,0.0f,0.0f});
+		}
+	}
+}
+
+void gatherMaskTriangles(){
+	triangle_count = 0;
+	for(int x = 0;x < RD_MASK_X;x++){
+		for(int y = 0;y < RD_MASK_Y;y++){
+			vec3_t color = occlusion_mask[x * RD_MASK_Y + y] ? (vec3_t){1.0f,1.0f,1.0f} : (vec3_t){0.0f,0.0f,0.0f}; 
+			guiRectangle((vec2_t){y * (2.0f / window_size.y) * RD_MASK_SIZE - 1.0f,x * (2.0f / window_size.x) * RD_MASK_SIZE - 1.0f},(vec2_t){(2.0f / window_size.y) * RD_MASK_SIZE,(2.0f / window_size.x) * RD_MASK_SIZE},color);
 		}
 	}
 }
@@ -1479,6 +1657,9 @@ typedef struct{
 holdable_t holdable;
 
 void drawBlockSelect(vec3_t block_pos,vec3_t luminance[3],float block_size,uint32_t material_id){
+	if(material_id == BLOCK_RAIL){
+		return;
+	}
 	material_t material = material_array[material_id];
 	vec2_t x_direction = vec2addvec2R((vec2_t){holdable.direction.x + 0.1f,0.1f},(vec2_t){M_PI * 0.5f,0.0f});
 	vec2_t y_direction = vec2addvec2R((vec2_t){holdable.direction.x + 0.1f,holdable.direction.y + 0.1f},(vec2_t){0.0f,M_PI * 0.5f});
@@ -1644,7 +1825,7 @@ void mouseDown(){
 	}
 	vec3_t spawn_pos = vec3addvec3R(camera.pos,vec3mulR(dir,distance));
 	block_break_progress = 0.0f;
-	inventoryAdd((item_t){.ammount = 1 << (12 - depth) * 3,.type = node->type});
+	inventoryAdd((item_t){.ammount = 1 << (DEPTH_MAX - depth) * 3,.type = node->type});
 	rayRemoveVoxel(camera.pos,dir,tMax(node->depth,edit_depth));
 	for(int i = 0;i < 16;i++){
 		entity_t* entity = getNewEntity();
@@ -1663,7 +1844,9 @@ void mouseDown(){
 	}
 }
 
-#define BLOCKTICK_RADIUS 40.0f
+#define BLOCKTICK_RADIUS 120.0f
+
+uint32_t block_tick_filter;
 
 void blockTick(uint32_t node_ptr){
 	node_t* node = dynamicArrayGet(node_root,node_ptr);
@@ -1671,14 +1854,16 @@ void blockTick(uint32_t node_ptr){
 	vec3_t block_pos = {node->pos.x,node->pos.y,node->pos.z};
 	vec3add(&block_pos,0.5f);
 	vec3mul(&block_pos,block_size);
-	float distance = sdCube(camera.pos,block_pos,block_size);
-	if(distance > BLOCKTICK_RADIUS)
-		return;
 	if(node->type == BLOCK_PARENT){
+		float distance2 = sdCube(camera.pos,block_pos,block_size);
+		if(distance2 > BLOCKTICK_RADIUS)
+			return;
 		for(int i = 0;i < 8;i++)
 			blockTick(node->child_s[i]);
 		return;
 	}
+	if((node_ptr & 0x3f) != block_tick_filter)
+		return;
 	if(node->type == BLOCK_AIR){
 		for(int i = 0;i < 6;i++)
 			gasSpread(node->pos.x,node->pos.y,node->pos.z,node->depth,i,border_block_table[i]);
@@ -1735,16 +1920,13 @@ void menu(){
 			guiFrame(RD_SQUARE(-0.55f),(vec2_t){1.0f * RD_RATIO,1.2f},(vec3_t){0.6f,0.5f,0.1f},0.1f);
 			guiRectangle(RD_SQUARE(-0.45f),(vec2_t){0.9f * RD_RATIO,1.2f},(vec3_t){0.4f,0.4f,0.4f});
 			break;
+		case BLOCK_FURNACE:
 		case BLOCK_BASIC:
 		case BLOCK_ELEKTRIC_1:
-			guiFrame((vec2_t){0.45f,0.45f},RD_SQUARE(0.2f),(vec3_t){0.2f,0.2f,0.2f},0.02f);
-			guiRectangle((vec2_t){0.45f,0.45f},RD_SQUARE(0.2f),(vec3_t){0.4f,0.4f,0.4f});
-			drawCraftMenu();
-			break;
-		case BLOCK_FURNACE:
-			guiFrame(RD_SQUARE(-0.55f),(vec2_t){1.0f * RD_RATIO,1.0f},(vec3_t){0.6f,0.5f,0.1f},0.1f);
-			guiRectangle(RD_SQUARE(-0.45f),(vec2_t){0.9f * RD_RATIO,0.9f},(vec3_t){0.4f,0.4f,0.4f});
-			block_t* block = dynamicArrayGet(block_array,node->index);
+			guiFrame(RD_SQUARE(-0.47f),RD_SQUARE(0.92f),(vec3_t){0.2f,0.2f,0.2f},0.02f);
+			guiFrame(RD_SQUARE(-0.55f),RD_SQUARE(1.0f),(vec3_t){0.6f,0.5f,0.1f},0.1f);
+			guiRectangle((vec2_t){-0.45f * RD_RATIO,0.25f},(vec2_t){0.9f * RD_RATIO,0.02f},(vec3_t){0.2f,0.2f,0.2f});
+			guiRectangle(RD_SQUARE(-0.45f),RD_SQUARE(0.9f),(vec3_t){0.4f,0.4f,0.4f});
 			break;
 		}
 	}
@@ -1756,7 +1938,7 @@ void blockCraftRecipy(int num_tick){
 	if(block->recipy_select == 0xff)
 		return;
 	craftrecipy_t recipy = craft_recipy[block->recipy_select];
-	if(!block->craft_progress){
+	if(!block->progress){
 		for(int i = 0;i < 2;i++){
 			for(int j = 0;j < 2;j++){
 				if(recipy.cost[j].type == ITEM_VOID)
@@ -1777,17 +1959,17 @@ void blockCraftRecipy(int num_tick){
 						itemChange(&block->inventory[i],-recipy.cost[j].ammount);
 				}
 			}
-			block->craft_progress += 0.01f * num_tick;
+			block->progress += 0.01f * num_tick;
 		}
 		return;
 	}
-	block->craft_progress += 0.01f * num_tick;
-	if(block->craft_progress > 1.0f){
+	block->progress += 0.01f * num_tick;
+	if(block->progress > 1.0f){
 		if(block->inventory[2].type != recipy.result && block->inventory[2].type != ITEM_VOID){
-			block->craft_progress = 1.0f;
+			block->progress = 1.0f;
 			return;
 		}
-		block->craft_progress = 0.0f;
+		block->progress = 0.0f;
 		block->inventory[2].type = recipy.result;
 		block->inventory[2].ammount += 1;
 	}
@@ -1799,6 +1981,7 @@ void draw(){
 	HANDLE lighting_thread = CreateThread(0,0,lighting,0,0,0);
 	initGL(context);
 	for(;;){
+		camera.tri = (vec4){cosf(camera.dir.x),sinf(camera.dir.x),cosf(camera.dir.y),sinf(camera.dir.y)};
 		is_rendering = true;
 		if(player_gamemode == GAMEMODE_SURVIVAL){
 			if(item_hold_ptr)
@@ -1833,10 +2016,9 @@ void draw(){
 		}
 		if(!in_menu && !block_menu_block)
 			generateBlockOutline();
-		if(wireframe_mode_change){
-			wireframe_mode_change = false;
-			wireframe_mode ^= true;
-			glPolygonMode(GL_FRONT_AND_BACK,wireframe_mode ? GL_LINE : GL_FILL);
+		if(render_mode_change != render_mode){
+			render_mode = render_mode_change;
+			glPolygonMode(GL_FRONT_AND_BACK,render_mode == RENDER_MODE_WIREFRAME ? GL_LINE : GL_FILL);
 		}
 		float f = tMin(__rdtsc() - time >> 18,window_size.x - 1);
 		f /= WND_RESOLUTION_X / 2.0f;
@@ -1845,18 +2027,26 @@ void draw(){
 		main_thread_status = 0;
 		genBlockSelect();
 		castVisibilityRays();
-		if(show_tree_iteration)
-			collectTreeIteration();
-		else{
+		switch(render_mode){
+		default:
 			setViewPlanes();
 			sceneGatherTriangles(0);
+			break;
+		case RENDER_MODE_TREE_ITERATION:
+			collectTreeIteration();
+			break;
+		case RENDER_MODE_MASK:
+			setViewPlanes();
+			sceneGatherTriangles(0);
+			gatherMaskTriangles();
+			break;
 		}
 		main_thread_status = 1;
 		drawHardware();
 		
 		while(main_thread_status == 1)
 			Sleep(1);
-		memset(mask,0,RD_MASK_X * RD_MASK_Y);
+		memset(occlusion_mask,0,RD_MASK_X * RD_MASK_Y);
 		triangle_count = 0;
 		SwapBuffers(context);
 		glClearColor(LUMINANCE_SKY.r,LUMINANCE_SKY.g,LUMINANCE_SKY.b,1.0f);
@@ -1867,8 +2057,20 @@ void draw(){
 				itemChange(&inventory_slot[INVENTORY_PASSIVE],-1);
 		}
 		int difference = tick_new - global_tick;
-		int num_tick = difference / 4;
-		for(int i = 0;i < num_tick;i++)
+		int num_tick = (tick_new >> 2) - (global_tick >> 2);
+		for(int i = 0;i < num_tick;i++){
+			for(int j = 0;j < furnace_array.size;j++){
+				uint32_t* index = dynamicArrayGet(furnace_array,j);
+				if(!*index)
+					continue;
+				node_t* node = dynamicArrayGet(node_root,*index);
+				block_t* block = dynamicArrayGet(block_array,node->index);
+				if(block->progress && block->inventory[1].type == BLOCK_IRON_ORE || block->inventory[1].type == BLOCK_COPPER_ORE){
+					block->progress += 0.0003f;
+				}
+			}
+		}
+		for(int i = 0;i < (tick_new >> 4) - (global_tick >> 4);i++)
 			blockTick(0);
 		entityTick(num_tick);
 		if(block_menu_block)
@@ -1905,13 +2107,123 @@ void draw(){
 	}	
 }
 
-uint32_t tNoise(uint32_t seed){
-	seed += seed << 10;
-	seed ^= seed >> 6;
-	seed += seed << 3;
-	seed ^= seed >> 11;
-	seed += seed << 15;
-	return seed;
+float rayBoxIntersection(vec3_t ro,vec3_t rd,vec3_t boxSize) {
+    vec3_t m = vec3divFR(rd,1.0f); // can precompute if traversing a set of aligned boxes
+    vec3_t n = vec3mulvec3R(m,ro);   // can precompute if traversing a set of aligned boxes
+    vec3_t k = vec3mulvec3R(vec3absR(m),boxSize);
+    vec3_t t1 = vec3subvec3R(vec3negR(n),k);
+    vec3_t t2 = vec3addvec3R(vec3negR(n),k);
+    float tN = tMaxf(tMaxf(t1.x,t1.y),t1.z);
+    float tF = tMinf(tMinf(t2.x,t2.y),t2.z);
+    if(tN > tF || tF < 0.0f) 
+		return -1.0f; // no intersection
+    return tN;
+}
+
+typedef struct{
+	vec3_t size;
+	vec3_t offset;
+	vec3_t color[6];
+}box_t;
+
+box_t box[] = {
+	{
+		.offset = {1.0f,0.0f,0.0f},
+		.size = {0.1f,1.0f,0.7f},
+		.color = {
+			{1.0f,1.0f,1.0f},
+			{0.5f,0.5f,0.5f},
+			{1.0f,1.0f,1.0f},
+			{1.0f,1.0f,1.0f},
+			{1.0f,1.0f,1.0f},
+			{1.0f,1.0f,1.0f},
+		}
+	},
+	{
+		.offset = {-1.0f,0.0f,0.0f},
+		.size = {0.1f,1.0f,0.7f},
+		.color = {
+			{0.5f,0.5f,0.5f},
+			{1.0f,1.0f,1.0f},
+			{1.0f,1.0f,1.0f},
+			{1.0f,1.0f,1.0f},
+			{1.0f,1.0f,1.0f},
+			{1.0f,1.0f,1.0f},
+		}
+	},
+	
+	{
+		.offset = {0.0f,1.0f,0.0f},
+		.size = {1.0f,0.1f,0.7f},
+		.color = {
+			{1.0f,1.0f,1.0f},
+			{1.0f,1.0f,1.0f},
+			{1.0f,1.0f,1.0f},
+			{0.5f,0.5f,0.5f},
+			{1.0f,1.0f,1.0f},
+			{1.0f,1.0f,1.0f},
+		}
+	},
+	{
+		.offset = {0.0f,-1.0f,0.0f},
+		.size = {1.0f,0.1f,0.7f},
+		.color = {
+			{1.0f,1.0f,1.0f},
+			{1.0f,1.0f,1.0f},
+			{0.5f,0.5f,0.5f},
+			{1.0f,1.0f,1.0f},
+			{1.0f,1.0f,1.0f},
+			{1.0f,1.0f,1.0f},
+		}
+	},
+};
+
+void initSprite(){
+	vec3_t ray_pos = {2.5f,0.0f,0.0f};
+	vec2_t ray_dir = {1.0f,0.0f};
+	for(int r = 0;r < 16;r++){
+		for(int x = 0;x < 32;x++){
+			for(int y = 0;y < 32;y++){
+				float min_distance = 999999.0f;
+				int min_object = -1;
+				vec3_t ray_angle = getRayAngle(ray_dir,(vec2_t){(1.0f / 16.0f) * y - 1.0f,(1.0f / 16.0f) * x - 1.0f});
+				//printf("%f\n",ray_angle.z);
+				for(int i = 0;i < sizeof(box) / sizeof(box_t);i++){
+					float distance = rayBoxIntersection(vec3subvec3R(box[i].offset,ray_pos),ray_angle,box[i].size);
+					if(distance == -1.0f || distance > min_distance)
+						continue;
+					min_distance = distance;
+					min_object = i;
+				}
+				int location = (x + TEXTURE_ATLAS_SIZE - 128 - 32 - r * 32) * TEXTURE_ATLAS_SIZE + y;
+				if(min_object == -1){
+					texture_atlas[location].a = 0xff;
+					continue;
+				}
+				vec3_t pos = vec3subvec3R(ray_pos,vec3mulR(ray_angle,min_distance));
+				int index = -1;
+				if(tAbsf(pos.x - box[min_object].size.x - box[min_object].offset.x) < 0.001f)
+					index = 0;
+				if(tAbsf(pos.x + box[min_object].size.x - box[min_object].offset.x) < 0.001f)
+					index = 1;
+				if(tAbsf(pos.y - box[min_object].size.y - box[min_object].offset.y) < 0.001f)
+					index = 2;
+				if(tAbsf(pos.y + box[min_object].size.y - box[min_object].offset.y) < 0.001f)
+					index = 3;
+				if(tAbsf(pos.z - box[min_object].size.z - box[min_object].offset.z) < 0.001f)
+					index = 4;
+				if(tAbsf(pos.z + box[min_object].size.z - box[min_object].offset.z) < 0.001f)
+					index = 5;
+				if(index == -1)
+					continue;
+				texture_atlas[location].r = box[min_object].color[index].r * 255.0f;
+				texture_atlas[location].g = box[min_object].color[index].g * 255.0f;
+				texture_atlas[location].b = box[min_object].color[index].b * 255.0f;
+			}
+		}
+		vec2rot(&ray_pos,M_PI * 0.125f);
+		ray_dir.x += M_PI * 0.125f;
+	}
 }
 
 void main(){ 
@@ -1919,7 +2231,9 @@ void main(){
 	initAnimation();
 	window_size.x = GetSystemMetrics(SM_CYSCREEN);
 	window_size.y = GetSystemMetrics(SM_CXSCREEN);
-	//generate sphere mesh from tetrahedron
+	occlusion_mask = tMallocZero(RD_MASK_X * RD_MASK_Y);
+	occlusion_scanline = tMallocZero(RD_MASK_X * sizeof(ivec2));
+ 	//generate sphere mesh from tetrahedron
 	int indic_c = 4;
 	int vertex_c = 4;
 	for(int j = 0;j < 3;j++){
@@ -1954,6 +2268,7 @@ void main(){
 			vertex_c += 3;
 		}
 	}
+
 #pragma comment(lib,"Winmm.lib")
 	timeBeginPeriod(1);
 	node_t genesis;
@@ -1974,24 +2289,61 @@ void main(){
 	for(int x = 0;x < TEXTURE_ATLAS_SIZE * TEXTURE_ATLAS_SIZE;x++)
 		texture_atlas[x] = (pixel_t){255,255,255,0};
 
-	texture_t font = loadBMP("img/font.bmp");
+	texture_t font = loadBMP("img/vram.bmp");
 
-	for(int x = 256;x < 256 + 80;x++){
-		for(int y = 0;y < 80;y++){
-			pixel_t color = font.data[(x - 256) * 80 + y];
+	for(int x = 0;x <  TEXTURE_ATLAS_SIZE;x++){
+		for(int y = 0;y < TEXTURE_ATLAS_SIZE;y++){
+			pixel_t color = font.data[(TEXTURE_ATLAS_SIZE - x - 1) * TEXTURE_ATLAS_SIZE + y];
 			texture_atlas[x * TEXTURE_ATLAS_SIZE + y] = (pixel_t){color.b,color.g,color.r,0};
-			if(color.b)
+			if(!color.b && !color.r && !color.g){
 				texture_atlas[x * TEXTURE_ATLAS_SIZE + y].a = 0xff;
+			}
 		}
 	}
-
+	//stone
 	for(int x = 2048 - 128;x < 2048;x++){
 		for(int y = 0;y < 128;y++){
-			texture_atlas[x * TEXTURE_ATLAS_SIZE + y].r = tNoise(x * TEXTURE_ATLAS_SIZE + y) % 0x7f + 0x80;
-			texture_atlas[x * TEXTURE_ATLAS_SIZE + y].g = tNoise(x * TEXTURE_ATLAS_SIZE + y) % 0x7f + 0x80;
-			texture_atlas[x * TEXTURE_ATLAS_SIZE + y].b = tNoise(x * TEXTURE_ATLAS_SIZE + y) % 0x7f + 0x80;
+			int table[] = {1,2,3,5,8,13,21,34};
+			for(int i = 0;i < 3;i++){
+				int value = tNoise((x / table[i]) * TEXTURE_ATLAS_SIZE + y / table[i]) % 0x2f;
+				texture_atlas[x * TEXTURE_ATLAS_SIZE + y].r += value + 0x20;
+				texture_atlas[x * TEXTURE_ATLAS_SIZE + y].g += value + 0x20;
+				texture_atlas[x * TEXTURE_ATLAS_SIZE + y].b += value + 0x20;
+			}
 		}
 	}
+	//copper
+	for(int x = 2048 - 128;x < 2048;x++){
+		for(int y = 128;y < 256;y++){
+			int variation = tNoise((x + y) % 128) % 0x2f;
+			texture_atlas[x * TEXTURE_ATLAS_SIZE + y].r = 0xa0 + variation;
+			texture_atlas[x * TEXTURE_ATLAS_SIZE + y].g = 0x40 + variation;
+			texture_atlas[x * TEXTURE_ATLAS_SIZE + y].b = 0x20 + variation;
+		}
+	}
+	//iron
+	for(int x = 2048 - 128;x < 2048;x++){
+		for(int y = 256 + 128;y < 512;y++){
+			int variation = tNoise((x + y) % 128) % 0x2f;
+			texture_atlas[x * TEXTURE_ATLAS_SIZE + y].r = 0x40 + variation;
+			texture_atlas[x * TEXTURE_ATLAS_SIZE + y].g = 0x60 + variation;
+			texture_atlas[x * TEXTURE_ATLAS_SIZE + y].b = 0x70 + variation;
+		}
+	}
+	//coal
+	for(int x = 2048 - 128;x < 2048;x++){
+		for(int y = 256;y < 256 + 128;y++){
+			int table[] = {1,2,3,5,8,13,21,34};
+			for(int i = 0;i < 8;i++){
+				int value = tNoise((x / table[i]) * TEXTURE_ATLAS_SIZE + y / table[i]) % 0x1c;
+				texture_atlas[x * TEXTURE_ATLAS_SIZE + y].r += value;
+				texture_atlas[x * TEXTURE_ATLAS_SIZE + y].g += value;
+				texture_atlas[x * TEXTURE_ATLAS_SIZE + y].b += value;
+			}
+		}
+	}
+
+	initSprite();
 
 	//createFlatWorld();
 	createSurvivalWorld();

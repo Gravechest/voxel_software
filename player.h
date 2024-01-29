@@ -25,6 +25,7 @@ typedef struct{
 
 typedef struct{
 	animation_t attack_animation;
+	int train;
 }player_t;
 
 extern player_t player;

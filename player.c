@@ -6,7 +6,8 @@
 #include "tmath.h"
 
 player_t player = {
-	.attack_animation.frame = {.element_size = sizeof(animation_t)}
+	.attack_animation.frame = {.element_size = sizeof(animation_t)},
+	.train = -1,
 };
 
 void initAnimation(){
@@ -57,15 +58,9 @@ vec3_t getAnimationOffset(animation_t* animation){
 
 void playerAttack(){
 	vec3_t ray_dir = getLookAngle(camera.dir);
-	for(int i = 0;i < ENTITY_AMMOUNT;i++){
-		entity_t* entity = &entity_array[i];
-		if(!entity->alive)
-			continue;
-		if(!(entity->flags & ENTITY_FLAG_ENEMY))
-			continue;
-		float distance = rayIntersectSphere(camera.pos,entity->pos,ray_dir,entity->size * 1.5f);
-		if(distance > PLAYER_REACH || distance < 0.0f)
-			continue;
+	entity_hit_t hit = rayEntityIntersection(camera.pos,ray_dir);
+	if(hit.entity != -1){
+		entity_t* entity = &entity_array[hit.entity];
 		spawnNumberParticle(entity->pos,30);
 		playSound(SOUND_PUNCH,entity->pos);
 		if(entity->health < 30){
@@ -76,6 +71,5 @@ void playerAttack(){
 		entity->dir.z += 0.06f;
 		entity->dir.x += ray_dir.x * 0.06f;
 		entity->dir.y += ray_dir.y * 0.06f;
-		return;
 	}
 }

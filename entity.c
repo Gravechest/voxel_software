@@ -47,6 +47,29 @@ void spawnNumberParticle(vec3_t pos,uint32_t number){
 	}
 }
 #include <stdio.h>
+#include <math.h>
+
+void turnTrain(node_t* node,entity_t* entity,int rotation,bool orientation){
+	vec2_t turn_pos = (vec2_t[]){{0.0f,0.0f},{1.0f,0.0f},{1.0f,1.0f},{0.3f,0.3f}}[rotation];
+	vec2_t pos = (vec2_t){entity->pos.x,entity->pos.y};
+	pos.x /= (MAP_SIZE * 2.0f);
+	pos.y /= (MAP_SIZE * 2.0f);
+	pos.x *= (1 << node->depth);
+	pos.y *= (1 << node->depth);
+	pos.x = tFract(pos.x - turn_pos.x);
+	pos.y = tFract(pos.y - turn_pos.y);
+	float arc = atan2f(pos.x,pos.y);
+	arc += orientation ? entity->train_velocity * 1.0f : -entity->train_velocity * 1.0f;
+	printf("%f:%f",arc, vec2distance(pos,turn_pos));
+	float offset_x = sinf(arc) * vec2distance(pos,turn_pos);
+	float offset_y = cosf(arc) * vec2distance(pos,turn_pos);
+	printf("%f:%f\n",offset_x + turn_pos.x,offset_y + turn_pos.y);
+	entity->pos.x = entity->pos.x - pos.x + offset_x + turn_pos.x;
+	entity->pos.y = entity->pos.y - pos.y + offset_y + turn_pos.y;
+}
+
+#include "opengl.h"
+
 void entityBehavior(entity_t* entity){
 	if(!entity->alive)
 		return;
@@ -56,7 +79,55 @@ void entityBehavior(entity_t* entity){
 			return;
 		}
 	}
-	vec3addvec3(&entity->pos,entity->dir);
+	if(entity->type == ENTITY_TRAIN){
+		entity->train_velocity += 0.0001f;
+		uint32_t node_index = treeTraverse(entity->pos);
+		node_t* node = dynamicArrayGet(node_root,node_index);
+		vec2_t relative_pos = vec2subvec2R((vec2_t){entity->pos.x,entity->pos.y},(vec2_t){camera.pos.x,camera.pos.y});
+		float direction = atan2f(relative_pos.x,relative_pos.y) + M_PI;
+		int sprite_index = direction / (M_PI * 2.0f) * 16.0f;
+		entity->texture_pos = (vec2_t)TEXTURE_POS_CONVERT(0,2048 - 128 - 32 * 16 + sprite_index * 32);
+		if(node->type == BLOCK_RAIL){
+			air_t* air = dynamicArrayGet(air_array,node->index);
+			switch(air->orientation){
+			case 0b000000:
+			case 0b000010:
+			case 0b000001:
+			case 0b000011:
+				entity->pos.y += entity->train_orientation == 0 ? entity->train_velocity : -entity->train_velocity;
+				break;
+			case 0b001000:
+			case 0b000100:
+			case 0b001100:
+				entity->pos.x += entity->train_orientation == 2 ? entity->train_velocity : -entity->train_velocity;
+				break;
+			case 0b000110: 
+				break;
+				turnTrain(node,entity,1,entity->train_orientation == 2);
+				if(treeTraverse(entity->pos) != node_index)
+					entity->train_orientation = entity->train_orientation == 0 ? 3 : 0;
+				break;
+			case 0b001001:
+				turnTrain(node,entity,3,entity->train_orientation == 2); 
+				if(treeTraverse(entity->pos) != node_index)
+					entity->train_orientation = entity->train_orientation == 1 ? 3 : 1;
+				break;
+			case 0b000101: 
+				break;
+				turnTrain(node,entity,2,entity->train_orientation == 2); 
+				if(treeTraverse(entity->pos) != node_index)
+					entity->train_orientation = entity->train_orientation == 1 ? 3 : 1;
+				break;
+			case 0b001010: 
+				turnTrain(node,entity,0,entity->train_orientation == 2); 
+				if(treeTraverse(entity->pos) != node_index)
+					entity->train_orientation = entity->train_orientation == 1 ? 2 : 1;
+				break;
+			}
+		}
+	}
+	else
+		vec3addvec3(&entity->pos,entity->dir);
 	bool bound_x = entity->pos.x < 0.0f || entity->pos.x > MAP_SIZE * 2.0f;
 	bool bound_y = entity->pos.y < 0.0f || entity->pos.y > MAP_SIZE * 2.0f;
 	bool bound_z = entity->pos.z < 0.0f || entity->pos.z > MAP_SIZE * 2.0f;
@@ -101,10 +172,10 @@ void entityTick(uint32_t tick_ammount){
 	for(int i = 0;i < ENTITY_AMMOUNT;i++){
 		if(!entity_array[i].alive)
 			continue;
-		node_t node = treeTraverse(entity_array[i].pos);
-		if(node.type != BLOCK_AIR)
+		node_t* node = dynamicArrayGet(node_root,treeTraverse(entity_array[i].pos));
+		if(node->type != BLOCK_AIR && node->type != BLOCK_RAIL)
 			continue;
-		air_t* air = dynamicArrayGet(air_array,node.index);
+		air_t* air = dynamicArrayGet(air_array,node->index);
 		air->entity = -1;
 	}
 	for(int j = 0;j < tick_ammount;j++){
@@ -115,10 +186,10 @@ void entityTick(uint32_t tick_ammount){
 	for(int i = 0;i < ENTITY_AMMOUNT;i++){
 		if(!entity_array[i].alive)
 			continue;
-		node_t node = treeTraverse(entity_array[i].pos);
-		if(node.type != BLOCK_AIR)
+		node_t* node = dynamicArrayGet(node_root,treeTraverse(entity_array[i].pos));
+		if(node->type != BLOCK_AIR && node->type != BLOCK_RAIL)
 			continue;
-		air_t* air = dynamicArrayGet(air_array,node.index);
+		air_t* air = dynamicArrayGet(air_array,node->index);
 		if(air->entity != -1)
 			entity_array[i].next_entity = air->entity;
 		else
@@ -153,4 +224,22 @@ void trySpawnEnemy(){
 	entity->size = 0.3f;
 	entity->health = 100;
 	entity->flags = ENTITY_FLAG_ENEMY;
+}
+
+entity_hit_t rayEntityIntersection(vec3_t ray_pos,vec3_t ray_dir){
+	float min_distance = 999999.0f;
+	int min_entity = -1;
+	for(int i = 0;i < ENTITY_AMMOUNT;i++){
+		entity_t* entity = &entity_array[i];
+		if(!entity->alive)
+			continue;
+		float distance = rayIntersectSphere(camera.pos,entity->pos,ray_dir,entity->size * 1.5f);
+		if(distance > 0.0f && distance < min_distance){
+			min_distance = distance;
+			min_entity = i;
+		}
+	}
+	if(rayGetDistance(ray_pos,ray_dir) < min_distance)
+		return (entity_hit_t){.entity = -1};
+	return (entity_hit_t){.entity = min_entity,.distance = min_distance};
 }

@@ -27,16 +27,9 @@ typedef struct{
 	vec3_t fog_color;
 }triangle_t;
 
-typedef struct{
-	vec2_t pos;
-	vec3_t lighting;
-}triangle_ui_t;
-
 extern uint32_t triangle_count;
 extern triangle_t* triangles;
 extern uint32_t shaderprogram;
-extern uint32_t shader_program_ui;
-extern uint32_t shader_program_plain_texture;
 extern uint32_t VBO_plain_texture;
 extern uint32_t shader_program_plain_texture;
 

@@ -19,7 +19,8 @@ enum{
 	GUI_CRAFT_ELEKTRIC1,
 	GUI_CRAFT_BASIC,
 	GUI_GENERATOR,
-	GUI_FURNACE
+	GUI_FURNACE,
+	GUI_MINER
 };
 
 typedef struct{
@@ -47,6 +48,11 @@ typedef struct{
 }gui_t;
 
 extern dynamic_array_t gui_array[];
+
+void blockGUIinventory(vec3_t block_pos,ivec3 axis_table,float block_size,item_t* item,vec2_t pos,vec3_t frame_color);
+void blockGUIrectangle(vec3_t block_pos,ivec3 axis_table,float block_size,vec2_t pos,vec2_t size,vec3_t color);
+void blockGUIrectangleRotate(vec3_t block_pos,ivec3 axis_table,float block_size,vec2_t pos,vec2_t size,vec3_t color,float rotation);
+void blockGUIframe(vec3_t block_pos,ivec3 axis_table,float block_size,vec2_t pos,vec2_t size,vec3_t color,float thickness);
 
 void guiInventoryContent(item_t* slot,vec2_t pos,vec2_t size);
 void guiInventory(item_t* item,vec2_t pos,vec3_t frame_color);

@@ -92,14 +92,21 @@ ivec3 getGridPosFromPos(vec3_t pos,uint32_t depth){
 	return (ivec3){pos.x,pos.y,pos.z};
 }
 
-node_t treeTraverse(vec3_t pos){
+vec3_t getPosFromGridPos(ivec3 ipos,uint32_t depth){
+	vec3_t pos = {ipos.x,ipos.y,ipos.z};
+	vec3div(&pos,1 << depth);
+	vec3mul(&pos,MAP_SIZE * 2.0f);
+	return pos;
+}
+
+uint32_t treeTraverse(vec3_t pos){
 	vec3div(&pos,MAP_SIZE);
 	node_t* node = dynamicArrayGet(node_root,0);
 	uint32_t node_ptr = 0;
 	for(;;){
 		uint32_t child_ptr = node[node_ptr].child[(int)pos.z & 1][(int)pos.y & 1][(int)pos.x & 1];
 		if(!child_ptr)
-			return *(node_t*)dynamicArrayGet(node_root,node_ptr); 
+			return node_ptr; 
 		node_ptr = child_ptr;
 		vec3mul(&pos,2.0f);
 	}
@@ -121,7 +128,7 @@ traverse_init_t initTraverse(vec3_t pos){
 	pos.z = tFractUnsigned(pos.z * 0.5f) * 2.0f;
 	return (traverse_init_t){pos,node_ptr};
 }
-
+//TODO change this 
 block_t* insideBlock(vec3_t pos){
 	node_t* node = dynamicArrayGet(node_root,0);
 	uint32_t node_ptr = 0;
@@ -190,7 +197,9 @@ void changeNeighbour(node_t* base,int neighbour){
 	base_block->neighbour |= 1 << neighbour;
 }
 
-void setVoxel(uint32_t x,uint32_t y,uint32_t z,int depth,uint32_t material,float ammount){
+#include "train.h"
+
+void setVoxel(uint32_t x,uint32_t y,uint32_t z,int depth,uint32_t material,float ammount,int orientation){
 	node_t* node = node_root.data;
 	uint32_t* node_index = 0;
 	for(int i = depth - 1;i >= 0;i--){
@@ -266,18 +275,29 @@ void setVoxel(uint32_t x,uint32_t y,uint32_t z,int depth,uint32_t material,float
 					node->child_s[j] = 0;
 				}
 			}
-			else if(node->type == BLOCK_AIR)
+			else if(node->type == BLOCK_AIR || node->type == BLOCK_RAIL)
 				dynamicArrayRemove(&air_array,node->index);
 			else{
 				dynamicArrayRemove(&block_array,node->index);
 				if(material_array[node->type].flags & MAT_POWER)
 					powerGridRemove(node_index);
+				if(node->type == BLOCK_FURNACE){
+					for(int i = 0;i < furnace_array.size;i++){
+						uint32_t* index = dynamicArrayGet(furnace_array,i);
+						if(*index == node->index){
+							*index = 0;
+							dynamicArrayRemove(&furnace_array,i);
+							break;
+						}
+					}
+				}
 			}
-			
-			if(material == BLOCK_AIR){
+			if(material == BLOCK_AIR || material == BLOCK_RAIL){
 				node->index = dynamicArrayTop(air_array);
-				node->type = BLOCK_AIR;
+				node->type = material;
 				air_t air;
+				if(material == BLOCK_RAIL)
+					air.orientation = getRailOrientation(node_index);
 				air.entity = -1;
 				air.o2 = 0.3f;
 				air.luminance = VEC3_ZERO;
@@ -285,8 +305,9 @@ void setVoxel(uint32_t x,uint32_t y,uint32_t z,int depth,uint32_t material,float
 				return;
 			}
 			block_t block;
+			block.orientation = orientation;
 			block.recipy_select = -1;
-			block.craft_progress = 0.0f;
+			block.progress = 0.0f;
 			block.inventory[0] = (item_t){.ammount = 0,.type = ITEM_VOID};
 			block.inventory[1] = (item_t){.ammount = 0,.type = ITEM_VOID};
 			block.inventory[2] = (item_t){.ammount = 0,.type = ITEM_VOID};
@@ -302,6 +323,8 @@ void setVoxel(uint32_t x,uint32_t y,uint32_t z,int depth,uint32_t material,float
 			block.power = 0.0f;
 			node->index = dynamicArrayTop(block_array);
 			node->type = material;
+			if(material == BLOCK_FURNACE)
+				dynamicArrayAdd(&furnace_array,&node->index);
 			dynamicArrayAdd(&block_array,&block);
 			if(material_array[material].flags & MAT_PIPE){
 				block.neighbour = 0;
@@ -323,7 +346,7 @@ void setVoxel(uint32_t x,uint32_t y,uint32_t z,int depth,uint32_t material,float
 	}
 }
 
-void setVoxelSolid(uint32_t x,uint32_t y,uint32_t z,uint32_t depth,uint32_t material){
+void setVoxelSolid(uint32_t x,uint32_t y,uint32_t z,uint32_t depth,uint32_t material,int orientation){
 	node_t* node = dynamicArrayGet(node_root,0);
 	uint32_t node_ptr = 0;
 	/*
@@ -343,7 +366,7 @@ void setVoxelSolid(uint32_t x,uint32_t y,uint32_t z,uint32_t depth,uint32_t mate
 		}
 	}
 	*/
-	setVoxel(x,y,z,depth,material,0.0f);
+	setVoxel(x,y,z,depth,material,0.0f,orientation);
 }
 
 void recalculateRay(ray3_t* ray){
@@ -635,7 +658,7 @@ node_hit_t treeRayFlags(ray3_t ray,uint32_t node_ptr,vec3_t ray_pos,int flags){
 			continue;
 		}
 		uint32_t child = node[node_ptr].child[ray.square_pos.z][ray.square_pos.y][ray.square_pos.x];
-		if(node[child].type == BLOCK_AIR){
+		if(node[child].type == BLOCK_AIR || (!(flags & TREE_RAY_PLACE) && node[child].type == BLOCK_RAIL)){
 			ray3Itterate(&ray);
 			continue;
 		}

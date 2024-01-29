@@ -7,12 +7,18 @@
 enum{
 	ENTITY_PARTICLE,
 	ENTITY_ENEMY,
-	ENTITY_WATER
+	ENTITY_WATER,
+	ENTITY_TRAIN,
 };
 
 #define ENTITY_FLAG_GRAVITY (1 << 0)
 #define ENTITY_FLAG_FUSE (1 << 1)
 #define ENTITY_FLAG_ENEMY (1 << 2)
+
+typedef struct{
+	float distance;
+	int entity;
+}entity_hit_t;
 
 typedef struct{
 	union{
@@ -35,6 +41,8 @@ typedef struct{
 	float size;
 	float ammount;
 	int next_entity;
+	float train_velocity;
+	int train_orientation;
 }entity_t;
 
 extern entity_t entity_array[];
@@ -44,3 +52,4 @@ void entityBehavior(entity_t* entity);
 void entityTick(uint32_t tick_ammount);
 void trySpawnEnemy();
 entity_t* getNewEntity();
+entity_hit_t rayEntityIntersection(vec3_t ray_pos,vec3_t ray_dir);

@@ -6,6 +6,9 @@
 #include "dda.h"
 #include "vec2.h"
 #include "inventory.h"
+#include "dynamic_array.h"
+
+#define TEXTURE_POS_CONVERT(X,Y) {(float)(X) / TEXTURE_ATLAS_SIZE,(float)(Y) / TEXTURE_ATLAS_SIZE}
 
 #define PLAYER_REACH 4.0f
 #define PLAYER_BUILDREACH 8.0f
@@ -13,6 +16,8 @@
 #define INVENTORY_PASSIVE 0
 
 #define SPHERE_TRIANGLE_COUNT 256
+
+#define DEPTH_MAX 12
 
 #define RD_RATIO (9.0f/16.0f)
 #define RD_SQUARE(V) (vec2_t){V * RD_RATIO,V}
@@ -64,7 +69,9 @@ enum{
 	RECIPY_RESEARCH1,
 	RECIPY_BASIC,
 	RECIPY_GENERATOR,
-	RECIPY_FURNACE
+	RECIPY_FURNACE,
+	RECIPY_IRON,
+	RECIPY_COPPER,
 };
 
 typedef union{
@@ -129,6 +136,7 @@ enum{
 	BLOCK_BATTERY,
 	BLOCK_WIRE,
 	BLOCK_LAMP,
+	BLOCK_MINER,
 	BLOCK_GENERATOR,
 	BLOCK_SWITCH,
 	BLOCK_STONE,
@@ -147,6 +155,12 @@ enum{
 	BLOCK_WATER,
 	BLOCK_BASIC,
 	BLOCK_FURNACE,
+	BLOCK_IRON_ORE,
+	BLOCK_COPPER_ORE,
+	BLOCK_IRON,
+	BLOCK_COPPER,
+	BLOCK_RAIL,
+	BLOCK_TRAIN,
 };
 
 #define MAT_REFLECT (1 << 0)
@@ -158,17 +172,19 @@ enum{
 #define MAT_PIPE (1 << 6)
 #define MAT_ITEM (1 << 7)
 #define MAT_MENU (1 << 8)
+#define MAT_POWER_CONSUMER (1 << 9)
 
 typedef struct{
 	int flags;
 	vec3_t luminance;
-	vec3_t luminance_secundair;
 	float light_emit;
 	vec2_t texture_pos;
 	vec2_t texture_size;
 	float hardness;
 	int fixed_size;
 	int menu_index;
+	float power_convert;
+	float power_need;
 }material_t;
 
 typedef struct{
@@ -182,21 +198,26 @@ typedef struct{
 	};
 	uint16_t power_grid[2];
 	uint8_t neighbour;
-	float power;
-	item_t inventory[3];
 	uint8_t recipy_select;
 	union{
-		float craft_progress;
-		float burn_progress;
+		uint8_t gui_side;
+		uint8_t orientation;
+	};
+	float power;
+	item_t inventory[3];
+	union{
+		float progress;
 		uint8_t on;
 	};
+	uint32_t target;
 }block_t;
 
 typedef struct{
 	uint32_t node;
 	vec3_t luminance;
-	int entity;
 	float o2;
+	int entity;
+	uint8_t orientation;
 	/*
 	float co2;
 	float h2o;
@@ -257,8 +278,8 @@ extern uint32_t block_menu_block;
 extern craftrecipy_t craft_recipy[];
 extern int craft_ammount;
 extern ivec2 window_size;
+extern dynamic_array_t furnace_array;
 
-vec3_t pointToScreenZ(vec3_t point);
 plane_ray_t getPlane(vec3_t pos,vec3_t dir,uint32_t side,float block_size);
 vec3_t getLookAngle(vec2_t angle);
 vec2_t sampleCube(vec3_t v,uint32_t* faceIndex);
@@ -268,8 +289,10 @@ vec3_t getLuminance(vec3_t* luminance,vec2_t uv,uint32_t depth);
 vec3_t getRayAngleCamera(uint32_t x,uint32_t y);
 vec3_t getRayAnglePlane(vec3_t normal,float x,float y);
 float sdCube(vec3_t point,vec3_t cube,float cube_size);
+vec3_t pointToScreenZ(vec3_t point);
 vec3_t pointToScreenRenderer(vec3_t point);
 void increaseCraftAmmount();
 void decreaseCraftAmmount();
 void playerCraft(int recipy_index);
 void changeCraftRecipy(int recipy);
+void addSubVoxel(int vx,int vy,int vz,int x,int y,int z,int depth,int remove_depth,int block_id);

@@ -127,11 +127,11 @@ vec3_t sideGetLuminance(vec3_t ray_pos,vec3_t angle,node_hit_t result,uint32_t d
 		vec3_t normal = VEC3_ZERO;
 		normal.a[result.side] = angle.a[result.side] < 0.0f ? 1.0f : -1.0f;
 		float refract_1;
-		node_t start_node = treeTraverse(ray_pos);
-		if(start_node.type == BLOCK_AIR)
+		node_t* start_node = dynamicArrayGet(node_root,treeTraverse(ray_pos));
+		if(start_node->type == BLOCK_AIR)
 			refract_1 = 1.0f;
 		else{
-			if(material_array[start_node.type].flags & MAT_REFRACT)
+			if(material_array[start_node->type].flags & MAT_REFRACT)
 				refract_1 = 1.66f;
 			else
 				refract_1 = 1.0f;
@@ -221,8 +221,8 @@ void setLightMap(vec3_t* color,vec3_t pos,vec3_t normal,uint32_t quality){
 	if(!color)
 		return;
 	traverse_init_t init = initTraverse(pos);
-	node_t begin_node = treeTraverse(pos);
-	if(begin_node.type != BLOCK_AIR && !(material_array[begin_node.type].flags & MAT_LIQUID) && begin_node.type != BLOCK_SPHERE){
+	node_t* begin_node = dynamicArrayGet(node_root,treeTraverse(pos));
+	if(begin_node->type != BLOCK_AIR && !(material_array[begin_node->type].flags & MAT_LIQUID) && begin_node->type != BLOCK_SPHERE){
 		*color = VEC3_ZERO;
 		return;
 	}
@@ -408,15 +408,7 @@ void updateLightMapSide(node_t node,vec3_t* lightmap,material_t material,uint32_
 				while(main_thread_status == 2)
 					Sleep(1);
 			}
-			if(node.type == BLOCK_SWITCH){
-				block_t* block = dynamicArrayGet(block_array,node.index);
-				if(block->on)
-					vec3mulvec3(&lightmap[lightmap_location],material.luminance_secundair);
-				else
-					vec3mulvec3(&lightmap[lightmap_location],material.luminance);
-			}
-			else
-				vec3mulvec3(&lightmap[lightmap_location],material.luminance);
+			vec3mulvec3(&lightmap[lightmap_location],material.luminance);
 			vec3_t post = lightmap[lightmap_location];
 		}
 	}
@@ -436,7 +428,7 @@ void updateLightMap(vec3_t pos,uint32_t node_ptr,float radius){
 			updateLightMap(pos,node->child_s[i],radius);
 		return;
 	}
-	if(node->type == BLOCK_AIR){
+	if(node->type == BLOCK_AIR || node->type == BLOCK_RAIL){
 		calculateNodeLuminance(node,32);
 		return;
 	}
@@ -478,66 +470,3 @@ void lighting(){
 		}
 	}
 }
-/*
-void calculateDynamicLight(vec3_t pos,uint32_t node_ptr,float radius,vec3_t color){
-	return;
-	node_t node = node_root[node_ptr];
-	if(node.air)
-		return;
-	float block_size = (float)((1 << 20) >> node.depth) * MAP_SIZE_INV;
-	vec3_t block_pos = {node.pos.x,node.pos.y,node.pos.z};
-	vec3add(&block_pos,0.5f);
-	vec3mul(&block_pos,block_size);
-	if(!node.block){
-		float distance = sdCube(pos,block_pos,block_size);
-		if(radius < distance)
-			return;
-		for(int i = 0;i < 8;i++)
-			calculateDynamicLight(pos,node.child_s[i],radius,color);
-		return;
-	}
-	if(material_array[node.block->material].flags & MAT_LIQUID)
-		return;
-	uint32_t lm_size = GETLIGHTMAPSIZE(node.depth);
-
-	static const vec3_t normal_table[6] = {
-		{1.0f,0.0f,0.0f},
-		{-1.0f,0.0f,0.0f},
-		{0.0f,1.0f,0.0f},
-		{0.0f,-1.0f,0.0f},
-		{0.0f,0.0f,1.0f},
-		{0.0f,0.0f,-1.0f}
-	};
-	for(int i = 0;i < 6;i++){
-		if(!node.block->side[i].luminance_p)
-			continue;
-		vec3_t normal = normal_table[i];
-		vec3_t t_pos = block_pos;
-
-		uint32_t v_x = (uint32_t[]){VEC3_Y,VEC3_X,VEC3_X}[i >> 1];
-		uint32_t v_y = (uint32_t[]){VEC3_Z,VEC3_Z,VEC3_Y}[i >> 1];
-
-		t_pos.a[i >> 1] += block_size * (float)(i & 1 ? 1.0f : -1.0f) * 0.5f;
-		t_pos.a[v_x] -= block_size * 0.5f + block_size / (lm_size + 1);
-		t_pos.a[v_y] -= block_size * 0.5f + block_size / (lm_size + 1);
-		if(vec3dotR(vec3normalizeR(vec3subvec3R(t_pos,pos)),normal) < 0.0f)
-			continue;
-		for(int x = 0;x < lm_size + 1;x++){
-			for(int y = 0;y < lm_size + 1;y++){
-				float intensity = 1.0f / (vec3distance(t_pos,pos) * vec3distance(t_pos,pos));
-				if(intensity < 0.0f){
-					t_pos.a[v_x] += block_size / (lm_size + 1);
-					continue;
-				}
-				intensity *= vec3dotR(vec3normalizeR(vec3subvec3R(t_pos,pos)),normal);
-				vec3_t color_f = color;
-				vec3mul(&color_f,intensity);
-				vec3addvec3(&node.block->side[i].luminance_p[x * (lm_size + 1) + y],color_f);
-				t_pos.a[v_y] += block_size / (lm_size + 1);
-			}
-			t_pos.a[v_y] -= block_size;
-			t_pos.a[v_x] += block_size / (lm_size + 1);
-		}
-	}
-}
-*/

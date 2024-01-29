@@ -17,7 +17,7 @@ void liquidUnderSub(uint32_t node_ptr,node_t* liquid_node){
 			ammount_2 = 1.0f;
 			liquid->ammount = overflow / cube_volume_rel;
 		}
-		setVoxel(node->pos.x,node->pos.y,node->pos.z,node->depth,node->type,ammount_2);
+		setVoxel(node->pos.x,node->pos.y,node->pos.z,node->depth,node->type,ammount_2,0);
 		return;
 	}
 	if(node->type != BLOCK_PARENT){
@@ -53,7 +53,7 @@ void liquidUnder(int x,int y,int z,uint32_t depth){
 		return;
 		float ammount = liquid->ammount;
 		liquid->ammount = 0.0f;
-		setVoxel(x,y,z - 1,depth,liquid_node->type,ammount);
+		setVoxel(x,y,z - 1,depth,liquid_node->type,ammount,0);
 		return;
 	}
 	if(node->type != BLOCK_PARENT){
@@ -122,7 +122,7 @@ void liquidSideSub(uint32_t node_ptr,node_t* base,uint32_t* neighbour){
 	if(node->type == BLOCK_AIR){
 		float ammount = (base_height - node_height) * 0.5f * VISCOSITY;
 		base_block->ammount -= ammount;
-		setVoxel(node->pos.x,node->pos.y,node->pos.z,node->depth,base->type,ammount);
+		setVoxel(node->pos.x,node->pos.y,node->pos.z,node->depth,base->type,ammount,0);
 		return;
 	}
 	if(base->type == node->type){
@@ -189,7 +189,7 @@ bool powderSideSub(uint32_t base_ptr,uint32_t node_ptr,uint32_t* neighbour,int d
 		node_t* below = dynamicArrayGet(node_root,getNode(x,y,z - 1,POWDER_DEPTH));
 		if(below->type < BLOCK_PARENT)
 			return false;
-		setVoxelSolid(x,y,z,POWDER_DEPTH,1);
+		setVoxelSolid(x,y,z,POWDER_DEPTH,1,0);
 		//removeVoxel(base_ptr);
 		return true;
 	}
@@ -204,7 +204,7 @@ bool powderSideSub(uint32_t base_ptr,uint32_t node_ptr,uint32_t* neighbour,int d
 	node_t* below = dynamicArrayGet(node_root,getNode(x,y,z - 1,POWDER_DEPTH));
 	if(below->type < BLOCK_PARENT)
 		return false;
-	setVoxelSolid(x,y,z,POWDER_DEPTH,1);
+	setVoxelSolid(x,y,z,POWDER_DEPTH,1,0);
 	//removeVoxel(base_ptr);
 	int depth_mask = (1 << POWDER_DEPTH - base->depth) - 1;
 	addSubVoxel(base->pos.x << 1,base->pos.y << 1,base->pos.z << 1,x - dx & depth_mask,y - dy & depth_mask,z - dz & depth_mask,POWDER_DEPTH - base->depth,POWDER_DEPTH,1);
@@ -244,7 +244,7 @@ bool powderUnderSub(uint32_t base_ptr,uint32_t node_ptr){
 		z++;
 	}
 	if(base->depth >= POWDER_DEPTH){
-		setVoxelSolid(x,y,z,base->depth,1);
+		setVoxelSolid(x,y,z,base->depth,1,0);
 		//removeVoxel(base_ptr);
 		return true;
 	}
@@ -256,7 +256,7 @@ bool powderUnderSub(uint32_t base_ptr,uint32_t node_ptr){
 		y += TRND1 < 0.5f;
 		z++;
 	}
-	setVoxelSolid(x,y,z,POWDER_DEPTH,1);
+	setVoxelSolid(x,y,z,POWDER_DEPTH,1,0);
 	//removeVoxel(base_ptr);
 	int depth_mask = (1 << POWDER_DEPTH - base->depth) - 1;
 	addSubVoxel(base->pos.x << 1,base->pos.y << 1,base->pos.z << 1,x & depth_mask,y & depth_mask,z + 1 & depth_mask,POWDER_DEPTH - base->depth,POWDER_DEPTH,1);
